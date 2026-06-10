@@ -1,0 +1,43 @@
+<Window x:Class="Viewer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="Image Viewer" Height="700" Width="1200"
+        Background="#1a1a2e">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <!-- 左: フォルダーツリー（.NET ネイティブ） -->
+            <ColumnDefinition Width="250" MinWidth="120" />
+            <ColumnDefinition Width="5" />
+            <!-- 中央: ファイル一覧（WebView2） -->
+            <ColumnDefinition Width="*" MinWidth="200" />
+            <ColumnDefinition Width="5" />
+            <!-- 右: 詳細（WebView2） -->
+            <ColumnDefinition Width="320" MinWidth="200" />
+        </Grid.ColumnDefinitions>
+
+        <!-- フォルダーツリー：当面はファイルシステムツリー。
+             将来シェル名前空間（PC/ライブラリ/ネットワーク）へ拡張（仕様 §1.2）。 -->
+        <TreeView x:Name="FolderTree"
+                  Grid.Column="0"
+                  Background="#16213e" Foreground="#eee" BorderThickness="0"
+                  SelectedItemChanged="FolderTree_SelectedItemChanged"
+                  TreeViewItem.Expanded="FolderTree_Expanded">
+            <TreeView.Resources>
+                <Style TargetType="TreeViewItem">
+                    <Setter Property="Foreground" Value="#eee" />
+                </Style>
+            </TreeView.Resources>
+        </TreeView>
+
+        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
+                      Background="#0f3460" />
+
+        <wv2:WebView2 x:Name="ListView" Grid.Column="2" />
+
+        <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch"
+                      Background="#0f3460" />
+
+        <wv2:WebView2 x:Name="DetailsView" Grid.Column="4" />
+    </Grid>
+</Window>

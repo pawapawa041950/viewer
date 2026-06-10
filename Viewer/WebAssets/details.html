@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Details</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%;
+      background: #16213e; color: #eee;
+      font-family: "Segoe UI", "Yu Gothic UI", sans-serif; font-size: 13px;
+      overflow: auto;
+    }
+    #preview { width: 100%; height: 200px; background: #0e1626; display: flex;
+      align-items: center; justify-content: center; }
+    #preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    #info { padding: 10px; }
+    .name { font-weight: bold; margin-bottom: 8px; word-break: break-all; }
+    .row { display: flex; gap: 8px; margin: 3px 0; }
+    .row .k { color: #8aa; min-width: 72px; }
+    .row .v { color: #eee; word-break: break-all; }
+    .muted { color: #889; padding: 10px; }
+  </style>
+</head>
+<body>
+  <div id="preview"></div>
+  <div id="info"><div class="muted">ファイルを選択してください</div></div>
+  <script src="details-glue.js"></script>
+</body>
+</html>

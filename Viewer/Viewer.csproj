@@ -11,6 +11,12 @@
     <!-- ポータブル設計: 設定は exe 隣に置く（仕様 §9） -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Resources\icon\app.ico</ApplicationIcon>
+
+    <!-- バージョン情報ダイアログ用。ビルド時に評価され AssemblyInformationalVersionAttribute に
+         "vYYYYMMDD" 形式で焼きこまれる（= ハードコードせず毎ビルド自動更新）。chbrowser に準拠。
+         IncludeSourceRevisionInInformationalVersion=false で SDK が "+commitsha" を付けるのを抑止。 -->
+    <InformationalVersion>v$([System.DateTime]::Now.ToString('yyyyMMdd'))</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <!-- Release ビルドでは PDB を一切出さない（= 配布バイナリにビルド機の作業パスが
@@ -32,6 +38,12 @@
        WebView2 の仮想ホストマッピングで配信する（仕様 §0/§3）。 -->
   <ItemGroup>
     <None Include="WebAssets\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- バージョン情報ダイアログがアイコンを表示するため WPF Resource としても埋め込む
+       （ApplicationIcon は EXE 自体のアイコンで別経路。pack URI で参照するにはこれが必要）。 -->
+  <ItemGroup>
+    <Resource Include="Resources\icon\app.ico" />
   </ItemGroup>
 
 </Project>

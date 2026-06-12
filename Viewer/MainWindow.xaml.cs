@@ -117,11 +117,8 @@ public partial class MainWindow : Window
 
     private void About_Click(object sender, RoutedEventArgs e)
     {
-        var asm = System.Reflection.Assembly.GetExecutingAssembly();
-        var ver = asm.GetName().Version?.ToString() ?? "1.0.0.0";
-        MessageBox.Show(this,
-            $"画像ビューワー\nバージョン {ver}",
-            "バージョン情報", MessageBoxButton.OK, MessageBoxImage.Information);
+        var dlg = new AboutDialog { Owner = this };
+        dlg.ShowDialog();
     }
 
     private async void OpenShortcutsWindow()

@@ -1,0 +1,194 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  user-select: none;
+  font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+/* normal レイアウト：横並び。読み方向で row / row-reverse を切替（仕様 §4.1）。 */
+.stage.rtl { flex-direction: row-reverse; }
+
+.stage .cell {
+  height: 100%;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+
+/* トリミング（黒を減らす・全体表示優先）。仕様 §4.1。
+   セル寸法と img の object-fit は viewer-glue.js の layoutRow() がインラインで設定する
+   （各画像をアスペクト比どおりに並べ、列全体をウィンドウ内に収める＝切り取らない）。 */
+
+/* ズーム/パン用のラッパ（transform を適用）。
+   will-change:transform は付けない：付けると GPU が「等倍でラスタライズした
+   ビットマップ」を拡大するため、ズーム時に画像がモザイク化する。外すと WebView2 が
+   ズーム倍率に合わせて元画像から描き直すので、フル解像度まで鮮明になる（仕様 §4）。 */
+#zoomLayer {
+  position: absolute;
+  inset: 0;
+  transform-origin: center center;
+}
+
+/* 表示枚数の増減ボタン（右上・半透明・マウス移動時のみフェード表示） */
+.count-controls {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 200;
+  display: flex;
+  gap: 10px;
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+.count-controls.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.count-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.count-btn:hover { background: rgba(255, 255, 255, 0.4); }
+.count-btn:active { background: rgba(255, 255, 255, 0.55); }
+
+/* 表示メニュー ボタン（左上・半透明・マウス移動時のみフェード表示） */
+.layout-btn {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 200;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.25s, background 0.15s;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.layout-btn.show { opacity: 1; pointer-events: auto; }
+.layout-btn:hover { background: rgba(255, 255, 255, 0.4); }
+
+/* 表示メニュー（ドロップダウン） */
+.layout-menu {
+  position: absolute;
+  top: 62px;
+  left: 14px;
+  z-index: 201;
+  min-width: 220px;
+  background: rgba(28, 32, 42, 0.92);
+  color: #eee;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  font-size: 13px;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.layout-menu.hidden { display: none; }
+.layout-menu .lm-section { padding: 6px 10px 2px; color: #9ab; font-size: 11px; font-weight: 600; }
+.layout-menu .lm-sep { height: 1px; background: rgba(255, 255, 255, 0.12); margin: 4px 2px; }
+.layout-menu .lm-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap;
+}
+.layout-menu .lm-item:hover { background: rgba(255, 255, 255, 0.12); }
+.layout-menu .lm-check { width: 14px; text-align: center; color: #6cf; visibility: hidden; }
+.layout-menu .lm-item.active .lm-check { visibility: visible; }
+
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+.hint.show { opacity: 1; }
+
+.end-marker {
+  color: #888;
+  font-size: 16px;
+}
+
+/* 詳細オーバーレイ（仕様 §4.3） */
+.overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 320px;
+  height: 100%;
+  background: rgba(16, 22, 38, 0.92);
+  color: #eee;
+  overflow: auto;
+  padding: 12px;
+  box-sizing: border-box;
+  font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+  font-size: 12px;
+  z-index: 100;
+}
+.overlay.hidden { display: none; }
+.overlay .name { font-weight: bold; margin-bottom: 8px; word-break: break-all; }
+.overlay .row { display: flex; gap: 8px; margin: 3px 0; }
+.overlay .row .k { color: #8aa; min-width: 64px; }
+.overlay .row .v { color: #eee; word-break: break-all; }
+.overlay .section { margin: 10px 0 4px; font-weight: bold; color: #9bd; border-bottom: 1px solid #2a3a55; padding-bottom: 2px; }
+.overlay .prompt { white-space: pre-wrap; word-break: break-word; background: #0b1322; border-radius: 4px; padding: 6px; line-height: 1.4; }
+.overlay .prompt.neg { color: #e6a9a9; }
+.overlay .grid { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
+.overlay .grid .pk { color: #8aa; }
+.overlay .grid .pv { color: #eee; word-break: break-all; }

@@ -69,6 +69,15 @@ const FileList = (function () {
     // the grid bounds.
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+    // ペイン内ドラッグ中にウィンドウ外へ出たら、外部（Explorer等）へのネイティブドラッグへ委譲。
+    document.addEventListener('mouseleave', () => {
+      if (pending && pending.kind === 'drag' && pending.started) {
+        const paths = pending.paths;
+        endDrag();
+        pending = null;
+        startNativeDrag(paths);
+      }
+    });
 
     registerShortcuts();
   }
@@ -96,7 +105,8 @@ const FileList = (function () {
         const items = Array.from(grid.querySelectorAll('.file-item.selected'));
         if (items.length === 1) openItem(items[0]);
       },
-      'filelist.go_back_parent': () => { opts.onGoBack && opts.onGoBack(); },
+      'filelist.go_back': () => { opts.onGoBack && opts.onGoBack(); },   // 履歴で戻る
+      'filelist.go_up':   () => { opts.onGoUp && opts.onGoUp(); },       // 親フォルダーへ
       'filelist.delete':         () => {
         const items = Array.from(grid.querySelectorAll('.file-item.selected'));
         if (items.length > 0) opts.onDeleted && opts.onDeleted(items.map((it) => it.dataset.path));
@@ -128,21 +138,27 @@ const FileList = (function () {
       item.dataset.archivePath = extras.archivePath;
     }
 
-    let placeholderClass = 'file-icon placeholder';
-    let iconEmoji = '📄';
-    if (file.is_dir) {
-      placeholderClass += ' folder';
-      iconEmoji = '📁';
-    } else if (file.is_archive) {
-      placeholderClass += ' archive';
-      iconEmoji = '📦';
-    } else if (file.is_image) {
-      iconEmoji = '🖼️';
+    // 📦圧縮ファイル / 📁フォルダー は「アイコン＋中の1枚目サムネイル（右下・大きめ・重なる）」構造。
+    // サムネイルは list-glue が後から読み込む。画像が無ければアイコンは中央のまま（has-thumb 無し）。
+    let iconHtml;
+    if (file.is_archive) {
+      iconHtml =
+        '<div class="file-icon archive thumb-host">' +
+          '<span class="thumb-badge">📦</span>' +
+          '<img class="thumb-img" draggable="false" alt="" />' +
+        '</div>';
+    } else if (file.is_dir) {
+      iconHtml =
+        '<div class="file-icon folder thumb-host">' +
+          '<span class="thumb-badge">📁</span>' +
+          '<img class="thumb-img" draggable="false" alt="" />' +
+        '</div>';
+    } else {
+      const iconEmoji = file.is_image ? '🖼️' : '📄';
+      iconHtml = '<div class="file-icon placeholder">' + iconEmoji + '</div>';
     }
 
-    item.innerHTML =
-      '<div class="' + placeholderClass + '">' + iconEmoji + '</div>' +
-      '<span class="file-name">' + escapeHtml(file.name) + '</span>';
+    item.innerHTML = iconHtml + '<span class="file-name">' + escapeHtml(file.name) + '</span>';
 
     if (selected.has(file.path)) {
       item.classList.add('selected');
@@ -378,14 +394,16 @@ const FileList = (function () {
     const dy = e.clientY - pending.startY;
 
     if (pending.kind === 'drag') {
-      if (!pending.started && Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
       if (!pending.started) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
         pending.started = true;
-        startNativeDrag(pending.paths);
-        // Native drag takes over via the OS — we don't need to track move/up.
-        pending = null;
-        return;
+        createDragGhost(pending.paths.length);
       }
+      // ペイン内：ゴーストを追従させ、カーソル下のフォルダーをドロップ候補としてハイライト。
+      // ウィンドウ外へ出た場合は mouseleave で外部ネイティブドラッグへ委譲する。
+      positionGhost(e);
+      highlightDropFolder(folderUnder(e), pending.paths);
+      return;
     } else if (pending.kind === 'marquee') {
       if (!pending.started && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
       if (!pending.started) {
@@ -403,6 +421,20 @@ const FileList = (function () {
 
   function handleMouseUp(_e) {
     if (!pending) return;
+
+    if (pending.kind === 'drag' && pending.started) {
+      // ペイン内ドロップ：フォルダー上で離したら移動（Ctrlでコピー）、それ以外は何もしない。
+      const folder = folderUnder(_e);
+      const paths = pending.paths;
+      endDrag();
+      pending = null;
+      suppressEmptyClick = true; // ドラッグ後の click で選択が消えないように
+      if (folder && !paths.includes(folder.dataset.path) && opts.onInternalMove) {
+        opts.onInternalMove(paths, folder.dataset.path, _e.ctrlKey);
+      }
+      return;
+    }
+
     if (pending.kind === 'drag' && !pending.started && pending.collapseOnRelease) {
       // Click (no drag) on a previously-multi-selected item without modifier
       // → collapse to the single clicked item, matching Explorer.
@@ -423,10 +455,42 @@ const FileList = (function () {
       suppressEmptyClick = true;
     }
     pending = null;
-    if (dragHighlightFolder) {
-      dragHighlightFolder.classList.remove('drag-over');
-      dragHighlightFolder = null;
-    }
+    endDrag();
+  }
+
+  // ---- ペイン内ドラッグ（フォルダーへ移動）の補助 ----
+  let dragGhost = null;
+  function createDragGhost(count) {
+    removeGhost();
+    dragGhost = document.createElement('div');
+    dragGhost.id = 'fileDragGhost';
+    dragGhost.style.cssText =
+      'position:fixed;z-index:10000;pointer-events:none;background:rgba(0,120,212,0.9);' +
+      'color:#fff;font-size:12px;padding:3px 8px;border-radius:4px;';
+    dragGhost.textContent = count + ' 項目';
+    document.body.appendChild(dragGhost);
+  }
+  function positionGhost(e) {
+    if (dragGhost) { dragGhost.style.left = (e.clientX + 12) + 'px'; dragGhost.style.top = (e.clientY + 12) + 'px'; }
+  }
+  function removeGhost() { if (dragGhost) { dragGhost.remove(); dragGhost = null; } }
+
+  // カーソル直下のフォルダー要素（ゴーストは pointer-events:none なので無視される）。
+  function folderUnder(e) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const item = el && el.closest ? el.closest('.file-item') : null;
+    return (item && item.dataset.type === 'folder') ? item : null;
+  }
+  function highlightDropFolder(folder, paths) {
+    if (folder && paths.includes(folder.dataset.path)) folder = null; // 自分自身へは不可
+    if (dragHighlightFolder === folder) return;
+    if (dragHighlightFolder) dragHighlightFolder.classList.remove('drag-over');
+    dragHighlightFolder = folder;
+    if (folder) folder.classList.add('drag-over');
+  }
+  function endDrag() {
+    removeGhost();
+    if (dragHighlightFolder) { dragHighlightFolder.classList.remove('drag-over'); dragHighlightFolder = null; }
   }
 
   function updateMarquee(state, e) {
@@ -521,9 +585,15 @@ const FileList = (function () {
     if (D && D.isLoaded()) {
       // Space on a focused button must still activate the button.
       if (e.target.tagName === 'BUTTON' && e.key === ' ') return;
-      // Empty grid: nothing to navigate; let the event bubble (e.g. Ctrl+C/X/V
-      // handled at the document level in index.html).
-      if (getAllItems().length === 0) return;
+      // 空グリッド：ナビゲーションは無効だが、コピー/切り取り/貼り付けは効かせる。
+      // （旧実装は document レベルで Ctrl+C/X/V を処理していたが本アプリには無いため、
+      //  ここで拾わないと空フォルダーへ移動後の貼り付けが発火しない。）
+      if (getAllItems().length === 0) {
+        const id = D.actionForKey('ファイル一覧ペイン', e);
+        if ((id === 'filelist.paste' || id === 'filelist.copy' || id === 'filelist.cut')
+            && D.runAction(id, e)) e.preventDefault();
+        return;
+      }
       if (matchListKey(D, e)) e.preventDefault();
       return;
     }

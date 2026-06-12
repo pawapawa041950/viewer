@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>ショートカット & マウス操作 設定</title>
+  <style>
+    :root {
+      --bg-primary: #faf9f5;    /* 入力欄・リスト本体（明るいクリーム） */
+      --bg-secondary: #f0eee6;  /* ツールバー・見出し・フッター・モーダル（クリーム） */
+      --bg-hover: #e6e3d7;      /* ホバー */
+      --bg-selected: #cce4f7;   /* 選択・ボタンホバー */
+      --text-primary: #2b2a27;  /* 文字（暖色寄りの黒） */
+      --text-secondary: #73706a;/* 補助文字 */
+      --border-color: #e0dcd0;
+      --accent: #0078d4;        /* アクセント（メインウィンドウと統一） */
+      --warn: #c77700;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+      user-select: none;
+    }
+
+    /* ── Top: search box ─────────────────────────────────────────────── */
+    .toolbar {
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .toolbar label { color: var(--text-secondary); }
+    .toolbar input[type="text"] {
+      flex: 1;
+      padding: 4px 8px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .toolbar input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* ── Column header ───────────────────────────────────────────────── */
+    .column-header {
+      display: grid;
+      grid-template-columns: 1fr 160px 160px 160px;
+      gap: 8px;
+      padding: 6px 20px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 600;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    /* ── Body: scrollable list ───────────────────────────────────────── */
+    .list-body {
+      flex: 1;
+      overflow: auto;
+      background: var(--bg-primary);
+    }
+
+    .category-header {
+      padding: 8px 16px;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 600;
+      color: var(--text-primary);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 160px 160px 160px;
+      gap: 8px;
+      padding: 4px 20px;
+      align-items: center;
+    }
+    .row:hover { background: rgba(0, 0, 0, 0.04); }
+    .row.hidden { display: none; }
+
+    .cell-action {
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .cell-binding {
+      padding: 4px 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      cursor: pointer;
+      color: var(--text-primary);
+      font-size: 12px;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-height: 26px;
+    }
+    .cell-binding:hover {
+      background: var(--bg-hover);
+      border-color: var(--accent);
+    }
+    .cell-binding.empty { color: var(--text-secondary); }
+    .cell-binding.disabled {
+      background: transparent;
+      border-color: transparent;
+      cursor: not-allowed;
+      color: transparent;
+    }
+    /* Non-editable but still shows its value (fixed binding, e.g. right-click). */
+    .cell-binding.fixed {
+      background: transparent;
+      border-color: transparent;
+      cursor: default;
+      color: var(--text-secondary);
+    }
+
+    /* ── Footer: dirty flag + buttons ────────────────────────────────── */
+    .footer {
+      padding: 10px 12px;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .dirty-indicator { color: var(--warn); }
+    .dirty-indicator.hidden { visibility: hidden; }
+    .footer-buttons { display: flex; gap: 8px; }
+    .footer-buttons button {
+      padding: 5px 18px;
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      min-width: 90px;
+    }
+    .footer-buttons button:hover { background: var(--bg-selected); }
+    .footer-buttons button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .footer-buttons button.primary:hover { background: #1976d2; }
+
+    /* ── Modal dialogs ───────────────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-backdrop.visible { display: flex; }
+    .modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 16px;
+      width: 460px;
+      max-width: 95vw;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+    .modal h2 { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+    .modal .action-line { color: var(--text-secondary); margin-bottom: 12px; font-size: 12px; }
+    .modal .action-line strong { color: var(--text-primary); font-weight: 600; }
+    .modal .modal-buttons {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 14px;
+    }
+    .modal .modal-buttons .right { display: flex; gap: 8px; }
+    .modal button {
+      padding: 5px 18px;
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      min-width: 90px;
+    }
+    .modal button:hover { background: var(--bg-selected); }
+    .modal button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .modal button.primary:hover { background: #1976d2; }
+
+    .modal .capture-area {
+      border: 2px solid var(--accent);
+      background: rgba(30, 136, 229, 0.06);
+      border-radius: 4px;
+      padding: 24px 12px;
+      text-align: center;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      cursor: text;
+      outline: none;
+    }
+    .modal .capture-area .hint { color: var(--text-secondary); margin-bottom: 8px; }
+    .modal .capture-area .live {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--accent);
+      min-height: 24px;
+    }
+
+    .modal .gesture-canvas {
+      border: 2px solid var(--accent);
+      background: rgba(30, 136, 229, 0.06);
+      border-radius: 4px;
+      width: 100%;
+      height: 220px;
+      cursor: crosshair;
+      position: relative;
+    }
+    .modal .gesture-hint {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary);
+      pointer-events: none;
+      text-align: center;
+    }
+
+    .modal select {
+      width: 100%;
+      padding: 6px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .current-binding-line {
+      margin-top: 10px;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+    .current-binding-line strong { color: var(--text-primary); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <!-- Top: search -->
+  <div class="toolbar">
+    <label for="filterInput">操作を検索:</label>
+    <input type="text" id="filterInput" placeholder="操作名 / バインドで絞り込み" />
+  </div>
+
+  <!-- Column header -->
+  <div class="column-header">
+    <div>操作</div>
+    <div>キーボード入力</div>
+    <div>マウス入力</div>
+    <div>マウスジェスチャー</div>
+  </div>
+
+  <!-- Body -->
+  <div class="list-body" id="listBody"></div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div class="dirty-indicator hidden" id="dirtyIndicator">● 未保存の変更があります</div>
+    <div class="footer-buttons">
+      <button id="saveBtn" class="primary">保存</button>
+      <button id="closeBtn">閉じる</button>
+    </div>
+  </div>
+
+  <!-- Shortcut (key) edit modal -->
+  <div class="modal-backdrop" id="shortcutModal">
+    <div class="modal">
+      <h2>ショートカットの設定</h2>
+      <div class="action-line">操作: <strong id="shortcutModalAction"></strong></div>
+      <div class="capture-area" id="shortcutCapture" tabindex="0">
+        <div class="hint">ここをクリックしてフォーカスを移してから</div>
+        <div class="hint">新しいショートカットキーを押してください</div>
+        <div class="live" id="shortcutLive"></div>
+      </div>
+      <div class="current-binding-line">現在の割り当て: <strong id="shortcutCurrent">(未設定)</strong></div>
+      <div class="modal-buttons">
+        <button id="shortcutClearBtn">クリア</button>
+        <div class="right">
+          <button id="shortcutCancelBtn">キャンセル</button>
+          <button id="shortcutOkBtn" class="primary">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mouse op modal -->
+  <div class="modal-backdrop" id="mouseModal">
+    <div class="modal">
+      <h2>マウス操作の設定</h2>
+      <div class="action-line">操作: <strong id="mouseModalAction"></strong></div>
+      <select id="mouseSelect"></select>
+      <div class="current-binding-line">現在の割り当て: <strong id="mouseCurrent">(未設定)</strong></div>
+      <div class="modal-buttons">
+        <button id="mouseClearBtn">クリア</button>
+        <div class="right">
+          <button id="mouseCancelBtn">キャンセル</button>
+          <button id="mouseOkBtn" class="primary">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gesture modal -->
+  <div class="modal-backdrop" id="gestureModal">
+    <div class="modal">
+      <h2>マウスジェスチャーの設定</h2>
+      <div class="action-line">操作: <strong id="gestureModalAction"></strong></div>
+      <div class="gesture-canvas" id="gestureCanvas">
+        <div class="gesture-hint" id="gestureHint">
+          ここで右ボタンを押しながらドラッグしてジェスチャーを描画
+        </div>
+        <svg id="gesturePath" width="100%" height="100%" style="position:absolute;inset:0;pointer-events:none;"></svg>
+      </div>
+      <div class="current-binding-line">
+        入力中: <strong id="gestureLive">(未入力)</strong>
+        ／現在の割り当て: <strong id="gestureCurrent">(未設定)</strong>
+      </div>
+      <div class="modal-buttons">
+        <button id="gestureClearBtn">クリア</button>
+        <div class="right">
+          <button id="gestureCancelBtn">キャンセル</button>
+          <button id="gestureOkBtn" class="primary">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="shortcuts-catalog.js"></script>
+  <script>
+    // ─── Catalog (shared with the runtime dispatcher) ──────────────────
+    // Single source of truth lives in shortcuts-catalog.js so the settings UI
+    // and the runtime key/mouse/gesture dispatcher never drift apart.
+    const {
+      CATEGORIES, ACTIONS, MOUSE_OPTIONS,
+      isMouseEditable, isGestureEditable,
+      keyComboFromEvent, resolveItems,
+    } = window.ShortcutCatalog;
+
+    // ─── State ─────────────────────────────────────────────────────────
+    let items = [];      // [{ id, category, name, shortcut, mouse, gesture }]
+    let dirty = false;
+    let filterText = "";
+
+    // ─── Load + render ─────────────────────────────────────────────────
+    async function init() {
+      const saved = await loadOverrides();
+      items = resolveItems(saved);
+      // Wipe non-editable cells so stale data never appears
+      for (const it of items) {
+        if (!isMouseEditable(it.category))   it.mouse = "";
+        if (!isGestureEditable(it.category)) it.gesture = "";
+      }
+      render();
+      setupHandlers();
+    }
+
+    async function loadOverrides() {
+      try {
+        if (!window.__TAURI__?.core) return { version: 1, bindings: [] };
+        const s = await window.__TAURI__.core.invoke("load_shortcuts");
+        return s ?? { version: 1, bindings: [] };
+      } catch (e) {
+        console.error("load_shortcuts failed:", e);
+        return { version: 1, bindings: [] };
+      }
+    }
+
+    function render() {
+      const body = document.getElementById("listBody");
+      body.innerHTML = "";
+      const f = filterText.trim().toLowerCase();
+      let prevCat = null;
+      for (const it of items) {
+        const haystack = (it.name + " " + it.category + " " + it.shortcut + " " + it.mouse + " " + it.gesture).toLowerCase();
+        const matches = !f || haystack.includes(f);
+        if (it.category !== prevCat) {
+          // Defer category header — only render if it has any matching rows
+          // (we'll check by peeking ahead). Simpler: always render header,
+          // hide it if all its rows are filtered out.
+          const hdr = document.createElement("div");
+          hdr.className = "category-header";
+          hdr.dataset.category = it.category;
+          hdr.textContent = it.category;
+          body.appendChild(hdr);
+          prevCat = it.category;
+        }
+        const row = document.createElement("div");
+        row.className = "row" + (matches ? "" : " hidden");
+        row.dataset.id = it.id;
+        row.innerHTML = `
+          <div class="cell-action" title="${escapeHtml(it.name)}">${escapeHtml(it.name)}</div>
+          ${cellButton("shortcut", it.shortcut, true)}
+          ${it.id === "filelist.context_menu"
+            ? cellFixed(it.mouse || "右クリック", "右クリック固定（変更できません）")
+            : cellButton("mouse", it.mouse, isMouseEditable(it.category))}
+          ${cellButton("gesture",  it.gesture,  isGestureEditable(it.category))}
+        `;
+        body.appendChild(row);
+      }
+      // Hide category headers whose rows are all hidden
+      body.querySelectorAll(".category-header").forEach((hdr) => {
+        const cat = hdr.dataset.category;
+        const visible = Array.from(body.querySelectorAll(`.row[data-id]:not(.hidden)`))
+          .some((r) => items.find((i) => i.id === r.dataset.id)?.category === cat);
+        hdr.style.display = visible ? "" : "none";
+      });
+    }
+
+    function cellButton(kind, value, enabled) {
+      if (!enabled) {
+        return `<div class="cell-binding disabled" data-kind="${kind}"></div>`;
+      }
+      const display = value && value.length ? value : "—";
+      const cls = "cell-binding" + (value ? "" : " empty");
+      return `<button class="${cls}" data-kind="${kind}" title="${escapeHtml(value || "(未設定)")}">${escapeHtml(display)}</button>`;
+    }
+
+    // A non-editable cell that still shows its value (used for the file-list
+    // context menu, whose trigger is fixed to right-click).
+    function cellFixed(value, title) {
+      return `<div class="cell-binding fixed" title="${escapeHtml(title)}">${escapeHtml(value)}</div>`;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;","<": "&lt;",">": "&gt;",'"': "&quot;","'": "&#39;"}[c]));
+    }
+
+    // ─── Handlers ──────────────────────────────────────────────────────
+    function setupHandlers() {
+      document.getElementById("filterInput").addEventListener("input", (e) => {
+        filterText = e.target.value;
+        render();
+      });
+      document.getElementById("listBody").addEventListener("click", (e) => {
+        const btn = e.target.closest(".cell-binding");
+        if (!btn || btn.classList.contains("disabled") || btn.classList.contains("fixed")) return;
+        const row = btn.closest(".row");
+        if (!row) return;
+        const item = items.find((i) => i.id === row.dataset.id);
+        if (!item) return;
+        const kind = btn.dataset.kind;
+        if (kind === "shortcut") openShortcutModal(item);
+        else if (kind === "mouse") openMouseModal(item);
+        else if (kind === "gesture") openGestureModal(item);
+      });
+      document.getElementById("saveBtn").addEventListener("click", save);
+      document.getElementById("closeBtn").addEventListener("click", closeWindow);
+      window.addEventListener("beforeunload", (e) => {
+        if (dirty) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      });
+    }
+
+    function markDirty() {
+      dirty = true;
+      document.getElementById("dirtyIndicator").classList.remove("hidden");
+    }
+
+    async function save() {
+      try {
+        await window.__TAURI__.core.invoke("save_shortcuts", {
+          settings: {
+            version: 1,
+            bindings: items.map((i) => ({
+              id: i.id, shortcut: i.shortcut, mouse: i.mouse, gesture: i.gesture,
+            })),
+          },
+        });
+        dirty = false;
+        document.getElementById("dirtyIndicator").classList.add("hidden");
+      } catch (e) {
+        console.error("save_shortcuts failed:", e);
+        alert("保存に失敗しました: " + e);
+      }
+    }
+
+    async function closeWindow() {
+      if (dirty && !confirm("未保存の変更があります。破棄して閉じますか?")) return;
+      try {
+        const win = window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow?.();
+        if (win) await win.close();
+        else window.close();
+      } catch { window.close(); }
+    }
+
+    // ─── Conflict checking ─────────────────────────────────────────────
+    // Shortcut: globally unique across all categories.
+    // Mouse / Gesture: unique within a category.
+    function findConflict(editing, newValue, kind) {
+      if (!newValue) return null;
+      for (const other of items) {
+        if (other.id === editing.id) continue;
+        if (other[kind] !== newValue) continue;
+        if (kind === "shortcut") return other;            // globally unique
+        if (other.category === editing.category) return other; // per-category
+      }
+      return null;
+    }
+
+    function showConflict(conflict, kind) {
+      const labels = {
+        shortcut: ["ショートカット", "ショートカットはアプリ全体で 1 つのアクションにしか割り当てられません。"],
+        mouse:    ["マウス操作",     "マウス操作は同じカテゴリ内で重複して割り当てられません。"],
+        gesture:  ["マウスジェスチャー", "マウスジェスチャーは同じカテゴリ内で重複して割り当てられません。"],
+      };
+      const [label, scope] = labels[kind];
+      alert(`この${label}は「${conflict.name}」(${conflict.category}) で既に使われています。\n${scope}`);
+    }
+
+    // ─── Shortcut modal ────────────────────────────────────────────────
+    let shortcutCtx = null;
+    function openShortcutModal(item) {
+      shortcutCtx = { item, captured: item.shortcut };
+      document.getElementById("shortcutModalAction").textContent = item.name;
+      document.getElementById("shortcutLive").textContent = item.shortcut || "";
+      document.getElementById("shortcutCurrent").textContent = item.shortcut || "(未設定)";
+      const m = document.getElementById("shortcutModal");
+      m.classList.add("visible");
+      const cap = document.getElementById("shortcutCapture");
+      cap.focus();
+    }
+    function closeShortcutModal() {
+      document.getElementById("shortcutModal").classList.remove("visible");
+      shortcutCtx = null;
+    }
+    document.getElementById("shortcutCapture").addEventListener("keydown", (e) => {
+      if (!shortcutCtx) return;
+      // 修飾キー単独は無視
+      const combo = keyComboFromEvent(e);
+      if (!combo) return;
+      e.preventDefault();
+      // canonical 形式 (大文字化・Space 正規化など) で取り込み、実行時 dispatch と一致させる
+      shortcutCtx.captured = combo;
+      document.getElementById("shortcutLive").textContent = shortcutCtx.captured;
+    });
+    document.getElementById("shortcutClearBtn").addEventListener("click", () => {
+      if (!shortcutCtx) return;
+      shortcutCtx.captured = "";
+      document.getElementById("shortcutLive").textContent = "(未設定)";
+    });
+    document.getElementById("shortcutCancelBtn").addEventListener("click", closeShortcutModal);
+    document.getElementById("shortcutOkBtn").addEventListener("click", () => {
+      if (!shortcutCtx) return;
+      const { item, captured } = shortcutCtx;
+      if (captured !== item.shortcut) {
+        const c = findConflict(item, captured, "shortcut");
+        if (c) { showConflict(c, "shortcut"); return; }
+        item.shortcut = captured;
+        markDirty();
+        render();
+      }
+      closeShortcutModal();
+    });
+
+    // ─── Mouse modal ───────────────────────────────────────────────────
+    let mouseCtx = null;
+    function openMouseModal(item) {
+      mouseCtx = { item };
+      document.getElementById("mouseModalAction").textContent = item.name;
+      const sel = document.getElementById("mouseSelect");
+      sel.innerHTML = "";
+      for (const v of MOUSE_OPTIONS) {
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = v === "" ? "(未設定)" : v;
+        if (v === item.mouse) o.selected = true;
+        sel.appendChild(o);
+      }
+      document.getElementById("mouseCurrent").textContent = item.mouse || "(未設定)";
+      document.getElementById("mouseModal").classList.add("visible");
+    }
+    function closeMouseModal() {
+      document.getElementById("mouseModal").classList.remove("visible");
+      mouseCtx = null;
+    }
+    document.getElementById("mouseClearBtn").addEventListener("click", () => {
+      document.getElementById("mouseSelect").value = "";
+    });
+    document.getElementById("mouseCancelBtn").addEventListener("click", closeMouseModal);
+    document.getElementById("mouseOkBtn").addEventListener("click", () => {
+      if (!mouseCtx) return;
+      const { item } = mouseCtx;
+      const newVal = document.getElementById("mouseSelect").value;
+      if (newVal !== item.mouse) {
+        const c = findConflict(item, newVal, "mouse");
+        if (c) { showConflict(c, "mouse"); return; }
+        item.mouse = newVal;
+        markDirty();
+        render();
+      }
+      closeMouseModal();
+    });
+
+    // ─── Gesture modal ─────────────────────────────────────────────────
+    let gestureCtx = null;
+    let gDrawing = false;
+    let gLastPoint = null;
+    let gDirections = [];
+    let gPolyline = null;
+    const SAMPLE_DISTANCE = 18;
+    function openGestureModal(item) {
+      gestureCtx = { item, captured: item.gesture };
+      document.getElementById("gestureModalAction").textContent = item.name;
+      document.getElementById("gestureLive").textContent = item.gesture || "(未入力)";
+      document.getElementById("gestureCurrent").textContent = item.gesture || "(未設定)";
+      document.getElementById("gestureHint").style.display = "";
+      const svg = document.getElementById("gesturePath");
+      svg.innerHTML = "";
+      gPolyline = null; gDirections = []; gDrawing = false; gLastPoint = null;
+      document.getElementById("gestureModal").classList.add("visible");
+    }
+    function closeGestureModal() {
+      document.getElementById("gestureModal").classList.remove("visible");
+      gestureCtx = null;
+      gDrawing = false;
+    }
+    document.getElementById("gestureCanvas").addEventListener("contextmenu", (e) => e.preventDefault());
+    document.getElementById("gestureCanvas").addEventListener("mousedown", (e) => {
+      if (e.button !== 2) return; // Right button only
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      const p = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      gDrawing = true;
+      gLastPoint = p;
+      gDirections = [];
+      document.getElementById("gestureHint").style.display = "none";
+      const svg = document.getElementById("gesturePath");
+      svg.innerHTML = "";
+      const ns = "http://www.w3.org/2000/svg";
+      gPolyline = document.createElementNS(ns, "polyline");
+      gPolyline.setAttribute("fill", "none");
+      gPolyline.setAttribute("stroke", "#1E88E5");
+      gPolyline.setAttribute("stroke-width", "2.5");
+      gPolyline.setAttribute("stroke-linecap", "round");
+      gPolyline.setAttribute("points", `${p.x},${p.y}`);
+      svg.appendChild(gPolyline);
+      document.getElementById("gestureLive").textContent = "(描画中…)";
+    });
+    document.getElementById("gestureCanvas").addEventListener("mousemove", (e) => {
+      if (!gDrawing) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const p = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const cur = gPolyline.getAttribute("points");
+      gPolyline.setAttribute("points", `${cur} ${p.x},${p.y}`);
+      const dx = p.x - gLastPoint.x;
+      const dy = p.y - gLastPoint.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < SAMPLE_DISTANCE) return;
+      let dir;
+      if (Math.abs(dx) > Math.abs(dy)) dir = dx > 0 ? "→" : "←";
+      else                              dir = dy > 0 ? "↓" : "↑";
+      if (gDirections.length === 0 || gDirections[gDirections.length - 1] !== dir) {
+        gDirections.push(dir);
+      }
+      document.getElementById("gestureLive").textContent = gDirections.join("");
+      gLastPoint = p;
+    });
+    document.getElementById("gestureCanvas").addEventListener("mouseup", (e) => {
+      if (!gDrawing || e.button !== 2) return;
+      e.preventDefault();
+      gDrawing = false;
+      const captured = gDirections.join("");
+      gestureCtx.captured = captured;
+      document.getElementById("gestureLive").textContent = captured || "(未入力)";
+    });
+    document.getElementById("gestureClearBtn").addEventListener("click", () => {
+      if (!gestureCtx) return;
+      gestureCtx.captured = "";
+      gDirections = [];
+      document.getElementById("gesturePath").innerHTML = "";
+      document.getElementById("gestureLive").textContent = "(未入力)";
+      document.getElementById("gestureHint").style.display = "";
+    });
+    document.getElementById("gestureCancelBtn").addEventListener("click", closeGestureModal);
+    document.getElementById("gestureOkBtn").addEventListener("click", () => {
+      if (!gestureCtx) return;
+      const { item, captured } = gestureCtx;
+      if (captured !== item.gesture) {
+        const c = findConflict(item, captured, "gesture");
+        if (c) { showConflict(c, "gesture"); return; }
+        item.gesture = captured;
+        markDirty();
+        render();
+      }
+      closeGestureModal();
+    });
+
+    // ─── Boot ──────────────────────────────────────────────────────────
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", init);
+    } else {
+      init();
+    }
+  </script>
+</body>
+</html>

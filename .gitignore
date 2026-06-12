@@ -26,3 +26,6 @@ WebView2Data/
 # NuGet
 *.nupkg
 packages/
+
+# Claude Code local state (machine-specific; contains username/local paths/permissions)
+.claude/

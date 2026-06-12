@@ -51,6 +51,17 @@ public sealed class BasicFileInfo
     public bool IsDir { get; set; }
 }
 
+/// <summary>書庫内エントリ（仕様 §5）。path は書庫内の内部パス（'/' 区切りを '\' に正規化）。</summary>
+public sealed class ArchiveEntry
+{
+    public string Path { get; set; } = "";   // 書庫内パス（inner path）
+    public string Name { get; set; } = "";
+    public bool IsDir { get; set; }
+    public bool IsImage { get; set; }
+    public bool IsArchive { get; set; }       // 入れ子書庫は当面 false
+    public long Size { get; set; }
+}
+
 /// <summary>get_modifier_state の戻り値（仕様 §2.2）。</summary>
 public sealed class ModifierState
 {

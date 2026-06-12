@@ -3,41 +3,60 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="Image Viewer" Height="700" Width="1200"
-        Background="#1a1a2e">
-    <Grid>
+        WindowStartupLocation="Manual"
+        Background="#F0EEE6">
+  <DockPanel>
+    <Menu DockPanel.Dock="Top" Background="#F0EEE6" Foreground="#2B2A27">
+      <MenuItem Header="ファイル(_F)">
+        <MenuItem Header="終了(_X)" Click="Exit_Click" />
+      </MenuItem>
+      <MenuItem Header="ツール(_T)">
+        <MenuItem Header="設定" Click="OpenSettings_Click" />
+        <MenuItem Header="ショートカット設定" Click="OpenShortcuts_Click" />
+      </MenuItem>
+      <MenuItem Header="ヘルプ(_H)">
+        <MenuItem Header="バージョン情報" Click="About_Click" />
+      </MenuItem>
+    </Menu>
+    <Grid x:Name="RootGrid">
         <Grid.ColumnDefinitions>
             <!-- 左: フォルダーツリー（.NET ネイティブ） -->
-            <ColumnDefinition Width="250" MinWidth="120" />
+            <ColumnDefinition x:Name="TreeCol" Width="250" MinWidth="120" />
             <ColumnDefinition Width="5" />
             <!-- 中央: ファイル一覧（WebView2） -->
             <ColumnDefinition Width="*" MinWidth="200" />
             <ColumnDefinition Width="5" />
             <!-- 右: 詳細（WebView2） -->
-            <ColumnDefinition Width="320" MinWidth="200" />
+            <ColumnDefinition x:Name="DetailsCol" Width="320" MinWidth="200" />
         </Grid.ColumnDefinitions>
 
-        <!-- フォルダーツリー：当面はファイルシステムツリー。
+        <!-- フォルダーツリー（シェル名前空間, 仕様 §1.2 / C.6）。
              将来シェル名前空間（PC/ライブラリ/ネットワーク）へ拡張（仕様 §1.2）。 -->
         <TreeView x:Name="FolderTree"
                   Grid.Column="0"
-                  Background="#16213e" Foreground="#eee" BorderThickness="0"
+                  Background="#F0EEE6" Foreground="#2B2A27" BorderThickness="0"
+                  Padding="0,4,0,0"
                   SelectedItemChanged="FolderTree_SelectedItemChanged"
                   TreeViewItem.Expanded="FolderTree_Expanded">
             <TreeView.Resources>
                 <Style TargetType="TreeViewItem">
-                    <Setter Property="Foreground" Value="#eee" />
+                    <Setter Property="Foreground" Value="#2B2A27" />
+                    <!-- 各アイテムの上下に余白（≒1/4ライン）を入れて隙間を開ける -->
+                    <Setter Property="Padding" Value="2,2,2,2" />
                 </Style>
             </TreeView.Resources>
         </TreeView>
 
-        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
-                      Background="#0f3460" />
+        <!-- ペイン境界：1px の細線（表示）＋透明の 5px グラブ領域（リサイズ）を同じ列に重ねる -->
+        <Border Grid.Column="1" Width="1" Background="#E0DCD0" HorizontalAlignment="Center" />
+        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="Transparent" />
 
         <wv2:WebView2 x:Name="ListView" Grid.Column="2" />
 
-        <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch"
-                      Background="#0f3460" />
+        <Border Grid.Column="3" Width="1" Background="#E0DCD0" HorizontalAlignment="Center" />
+        <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch" Background="Transparent" />
 
         <wv2:WebView2 x:Name="DetailsView" Grid.Column="4" />
     </Grid>
+  </DockPanel>
 </Window>

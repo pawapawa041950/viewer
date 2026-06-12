@@ -5,26 +5,172 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Details</title>
   <style>
+    /* クリーム背景・暖色寄りの黒文字（claude.ai 風） */
+    :root {
+      --bg-primary: #faf9f5;   /* 入力欄など（明るいクリーム） */
+      --bg-secondary: #f0eee6; /* 本体背景（クリーム） */
+      --accent-green: #0f6034;
+      --text-primary: #2b2a27;
+      --text-secondary: #73706a;
+      --border-color: #e0dcd0;
+    }
     html, body {
       margin: 0; height: 100%;
-      background: #16213e; color: #eee;
+      background: var(--bg-secondary); color: var(--text-primary);
       font-family: "Segoe UI", "Yu Gothic UI", sans-serif; font-size: 13px;
-      overflow: auto;
+      overflow: hidden;
     }
-    #preview { width: 100%; height: 200px; background: #0e1626; display: flex;
-      align-items: center; justify-content: center; }
+    body { display: flex; flex-direction: column; }
+
+    #preview { flex: 0 0 auto; width: 100%; height: 200px; min-height: 40px; box-sizing: border-box;
+      background: #e8e5d9; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     #preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
-    #info { padding: 10px; }
+
+    /* プレビュー高さのドラッグリサイザー（元 viewer 互換） */
+    #previewResizer { flex: 0 0 auto; height: 5px; cursor: ns-resize; background: var(--border-color); transition: background 0.2s; }
+    #previewResizer:hover, #previewResizer.dragging { background: #0078d4; }
+
+    #info { flex: 1 1 auto; overflow: auto; padding: 10px; min-height: 0; }
     .name { font-weight: bold; margin-bottom: 8px; word-break: break-all; }
     .row { display: flex; gap: 8px; margin: 3px 0; }
-    .row .k { color: #8aa; min-width: 72px; }
-    .row .v { color: #eee; word-break: break-all; }
-    .muted { color: #889; padding: 10px; }
+    .row .k { color: #555; min-width: 72px; }
+    .row .v { color: #1a1a1a; word-break: break-all; }
+    .muted { color: #888; padding: 10px; }
+    .section { margin: 10px 0 4px; font-weight: bold; color: #0067c0; border-bottom: 1px solid #e0e0e0; padding-bottom: 2px; }
+    .prompt { white-space: pre-wrap; word-break: break-word; background: #eae7db; border-radius: 4px; padding: 6px; font-size: 12px; line-height: 1.4; }
+    .prompt.neg { color: #b00020; }
+    .grid { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 12px; }
+    .grid .pk { color: #555; }
+    .grid .pv { color: #1a1a1a; word-break: break-all; }
+
+    /* ===== タグフィルター（元 viewer 互換） ===== */
+
+    /* 選択中タグのサマリ。詳細本文とフィルタパネルの間に出る。空のときは非表示。 */
+    .tag-filter-summary {
+      flex-shrink: 0;
+      border-top: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--border-color);
+      padding: 4px 8px;
+      background: var(--bg-secondary);
+    }
+    .tag-filter-summary.empty { display: none; }
+    .tag-filter-summary-group { margin-bottom: 4px; }
+    .tag-filter-summary-group-title {
+      font-size: 10px; font-weight: 600; color: var(--text-secondary);
+      margin: 2px 0; letter-spacing: 0.5px;
+    }
+    .tag-filter-summary-items { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px 6px; }
+    .tag-filter-summary-items .tag-filter-item { flex: 0 0 auto; white-space: nowrap; max-width: 100%; }
+    .tag-filter-summary-items .tag-filter-item .tag-name {
+      overflow: hidden; text-overflow: ellipsis; max-width: 200px;
+    }
+
+    /* パネル本体 */
+    .tag-filter-panel {
+      display: flex; flex-direction: column; overflow: hidden;
+      flex-shrink: 0; min-height: 36px; height: 300px;
+    }
+    .tag-filter-panel-resizer {
+      height: 5px; cursor: ns-resize; background: var(--border-color);
+      transition: background 0.2s; flex-shrink: 0;
+    }
+    .tag-filter-panel-resizer:hover, .tag-filter-panel-resizer.dragging { background: #4a8a6a; }
+
+    .tag-filter-body { display: flex; flex-direction: column; flex: 1; overflow: hidden; min-height: 0; }
+
+    .tag-filter-notag { flex-shrink: 0; padding: 4px 8px; }
+
+    .tag-filter-tabs {
+      display: flex; flex-direction: row; flex-shrink: 0; align-items: center;
+      border-bottom: 1px solid var(--border-color);
+      background: linear-gradient(135deg, #4a8a6a 0%, #2d6a4f 100%);
+      padding: 2px 6px 0 6px; gap: 2px;
+    }
+    .tag-filter-tabs-title {
+      font-weight: 600; font-size: 12px; color: white;
+      padding: 4px 8px 4px 2px; margin-right: 6px; white-space: nowrap;
+    }
+    .tag-filter-tabs-title #tagFilterStatus { font-weight: normal; font-size: 10px; margin-left: 4px; opacity: 0.85; }
+    .tag-filter-tabs-spacer { flex: 1; }
+    .tag-filter-tabs .tag-filter-btn { margin-left: 4px; margin-bottom: 2px; }
+
+    .tag-filter-btn {
+      background: rgba(255,255,255,0.15); border: none; color: white;
+      font-size: 10px; padding: 2px 6px; border-radius: 3px; cursor: pointer;
+    }
+    .tag-filter-btn:hover { background: rgba(255,255,255,0.3); }
+
+    .tag-filter-tab {
+      font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.65);
+      padding: 4px 10px; cursor: pointer; user-select: none;
+      border-bottom: 2px solid transparent; display: inline-flex; align-items: center;
+      gap: 4px; white-space: nowrap;
+    }
+    .tag-filter-tab:hover { color: white; }
+    .tag-filter-tab.active { color: white; border-bottom-color: white; background: rgba(0,0,0,0.15); }
+    .tag-filter-tab-indicator { font-size: 10px; color: #ffd86b; visibility: hidden; }
+    .tag-filter-tab.has-filter .tag-filter-tab-indicator { visibility: visible; }
+
+    .tag-filter-panes { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+    .tag-filter-tab-pane { display: none; flex: 1; flex-direction: column; overflow: hidden; min-height: 0; }
+    .tag-filter-tab-pane.active { display: flex; }
+
+    /* 3-state トグル（none / AND / OR） */
+    .tag-state-toggle {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 26px; height: 14px; border: 1px solid var(--border-color);
+      border-radius: 3px; background: transparent; cursor: pointer; flex-shrink: 0;
+      font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+      color: var(--text-secondary); user-select: none; padding: 0 3px; box-sizing: border-box;
+    }
+    .tag-state-toggle.state-and { background: #2d6a4f; border-color: #4a8a6a; color: white; }
+    .tag-state-toggle.state-or { background: #c77a00; border-color: #d99300; color: white; }
+    .tag-state-toggle:hover { filter: brightness(1.15); }
+
+    .tag-summary-remove {
+      margin-left: 6px; cursor: pointer; color: var(--text-secondary);
+      font-weight: 700; font-size: 14px; line-height: 1; user-select: none;
+      padding: 0 3px; flex-shrink: 0;
+    }
+    .tag-summary-remove:hover { color: #d97070; }
+
+    .tag-filter-search { flex-shrink: 0; padding: 2px 8px 4px 8px; }
+    .tag-filter-search input {
+      width: 100%; padding: 2px 6px; font-size: 11px;
+      border: 1px solid var(--border-color); border-radius: 3px;
+      background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;
+    }
+    .tag-filter-search input:focus { border-color: #4a8a6a; }
+
+    .tag-filter-section-list { flex: 1; overflow-y: auto; padding: 0 8px 4px 8px; min-height: 0; }
+
+    .tag-filter-item {
+      display: flex; align-items: center; gap: 4px; padding: 1px 4px;
+      font-size: 11px; cursor: pointer; border-radius: 3px;
+    }
+    .tag-filter-item:hover { background: rgba(0,0,0,0.06); }
+    .tag-filter-item input[type="checkbox"] { margin: 0; width: 13px; height: 13px; flex-shrink: 0; }
+    .tag-filter-item .tag-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag-filter-item .tag-count { color: var(--text-secondary); font-size: 10px; flex-shrink: 0; }
+
+    .tag-filter-loading { color: var(--text-secondary); font-size: 11px; text-align: center; padding: 8px; }
   </style>
 </head>
 <body>
   <div id="preview"></div>
+  <div id="previewResizer"></div>
   <div id="info"><div class="muted">ファイルを選択してください</div></div>
+
+  <!-- 選択中フィルタのサマリ（空のとき非表示） -->
+  <div class="tag-filter-summary empty" id="tagFilterSummary"></div>
+  <!-- タグフィルター本体（ドラッグで高さ変更可） -->
+  <div class="tag-filter-panel" id="tagFilterPanel">
+    <div class="tag-filter-panel-resizer" id="tagFilterPanelResizer"></div>
+    <div class="tag-filter-body" id="tagFilterBody">
+      <div class="tag-filter-loading">読み込み中...</div>
+    </div>
+  </div>
+
   <script src="details-glue.js"></script>
 </body>
 </html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>設定</title>
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+  <div class="layout">
+    <!-- 左：カテゴリ -->
+    <nav class="cats">
+      <div class="cat active" data-cat="overall">全体</div>
+      <div class="cat" data-cat="filelist">ファイル一覧</div>
+      <div class="cat" data-cat="imagewin">画像ウィンドウ</div>
+    </nav>
+
+    <!-- 右：設定パネル -->
+    <main class="panel">
+      <section class="page" data-page="overall">
+        <div class="page-head">
+          <h1>全体</h1>
+          <p class="desc">アプリ全体の設定</p>
+        </div>
+        <div class="field">
+          <div class="field-label">起動時に開くフォルダ</div>
+          <label class="row radio">
+            <input type="radio" name="startup_mode" value="last" />
+            <span>前回終了時に開いていたフォルダ</span>
+          </label>
+          <label class="row radio">
+            <input type="radio" name="startup_mode" value="fixed" />
+            <span>決まったフォルダ</span>
+          </label>
+          <div class="row indent">
+            <input type="text" id="startup_folder" class="path-input" placeholder="フォルダを選択…" readonly />
+            <button id="pick_folder" class="btn">参照…</button>
+          </div>
+          <label class="row radio">
+            <input type="radio" name="startup_mode" value="none" />
+            <span>どこも開かない</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="page hidden" data-page="filelist">
+        <div class="page-head">
+          <h1>ファイル一覧</h1>
+          <p class="desc">ファイル一覧ペインの設定</p>
+        </div>
+        <label class="row">
+          <input type="checkbox" id="show_hidden" />
+          <span>隠しファイル・フォルダーを表示する</span>
+        </label>
+        <p class="hint">ファイル一覧は即時反映されます。ツリーは次に展開したフォルダー（または再起動後）から反映されます。</p>
+
+        <label class="row">
+          <input type="checkbox" id="folder_thumbnails" />
+          <span>フォルダのサムネイルを表示する</span>
+        </label>
+        <p class="hint">フォルダ内の1枚目の画像をサムネイル表示します。動作が重い場合はチェックを外してください。</p>
+
+        <label class="row">
+          <input type="checkbox" id="archive_thumbnails" />
+          <span>圧縮ファイルのサムネイルを表示する</span>
+        </label>
+        <p class="hint">圧縮ファイル内の1枚目の画像をサムネイル表示します。動作が重い場合はチェックを外してください。</p>
+
+        <label class="row">
+          <input type="checkbox" id="sync_list_selection" />
+          <span>表示している画像をファイル一覧上で選択する</span>
+        </label>
+        <label class="row">
+          <input type="checkbox" id="sync_tree_selection" />
+          <span>開いているフォルダをツリーで選択する</span>
+        </label>
+      </section>
+
+      <section class="page hidden" data-page="imagewin">
+        <div class="page-head">
+          <h1>画像ウィンドウ</h1>
+          <p class="desc">画像ウィンドウの設定</p>
+        </div>
+        <div class="field">
+          <div class="field-label">画像ウィンドウを新たに開いたときの表示枚数</div>
+          <label class="row radio">
+            <input type="radio" name="image_count_mode" value="fixed" />
+            <span>決まった枚数</span>
+          </label>
+          <div class="row indent">
+            <input type="number" id="image_count_fixed" class="num-input" min="1" max="16" />
+            <span class="unit">枚</span>
+          </div>
+          <label class="row radio">
+            <input type="radio" name="image_count_mode" value="last" />
+            <span>前回開いていた枚数で開く</span>
+          </label>
+        </div>
+        <label class="row">
+          <input type="checkbox" id="end_marker" />
+          <span>フォルダ末尾マーカー（「フォルダ末尾」ラベル）を表示する</span>
+        </label>
+        <label class="row">
+          <input type="checkbox" id="loop_navigation" />
+          <span>末尾の画像から最初の画像に移動する（循環）</span>
+        </label>
+        <div class="field">
+          <div class="field-label">画像前後の事前読み枚数</div>
+          <div class="row">
+            <input type="number" id="preload_count" class="num-input" min="0" max="50" />
+            <span class="unit">枚</span>
+          </div>
+          <p class="hint">表示中の前後この枚数を先読みします。多いほど切替が速くなりますが、メモリ・読み込み負荷が増えます（0で無効）。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="settings-glue.js"></script>
+</body>
+</html>

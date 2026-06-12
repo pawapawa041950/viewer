@@ -346,12 +346,20 @@ public partial class MainWindow : Window
         try
         {
             var uri = new Uri(uriStr);
+            // t=<最大辺px> が付いていれば一覧サムネイル要求＝縮小デコードして配信（スクロール時の
+            // 大画像デコード/描画によるカクつきを防ぐ）。付いていなければビューワー等のフル表示。
+            var thumbMax = ParseThumb(uri.Query);
             var archive = QueryParam(uri.Query, "a");
             if (!string.IsNullOrEmpty(archive))
             {
                 var inner = QueryParam(uri.Query, "i") ?? "";
                 var bytes = ArchiveService.ReadEntry(archive, inner);
                 if (bytes == null) return (null, "");
+                if (thumbMax > 0)
+                {
+                    var thumb = ImageTranscode.MakeThumbnail(bytes, thumbMax);
+                    if (thumb != null) return (thumb, "image/png");
+                }
                 var aMime = MimeOf(inner);
                 if (FileTypes.NeedsTranscode(inner))
                 {
@@ -364,6 +372,11 @@ public partial class MainWindow : Window
             var path = QueryParam(uri.Query, "p");
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return (null, "");
             var fileBytes = File.ReadAllBytes(path);
+            if (thumbMax > 0)
+            {
+                var thumb = ImageTranscode.MakeThumbnail(fileBytes, thumbMax);
+                if (thumb != null) return (thumb, "image/png");
+            }
             var mime = MimeOf(path);
             if (FileTypes.NeedsTranscode(path))
             {
@@ -391,6 +404,15 @@ public partial class MainWindow : Window
                 return System.Net.WebUtility.UrlDecode(pair[(eq + 1)..]);
         }
         return null;
+    }
+
+    /// <summary>クエリの t=&lt;最大辺px&gt;（一覧サムネイル要求）を取り出す。無ければ 0。</summary>
+    private static int ParseThumb(string query)
+    {
+        var t = QueryParam(query, "t");
+        if (!string.IsNullOrEmpty(t) && int.TryParse(t, out var n) && n > 0)
+            return Math.Clamp(n, 16, 1024);
+        return 0;
     }
 
     private static string MimeOf(string path) => Path.GetExtension(path).ToLowerInvariant() switch

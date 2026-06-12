@@ -10,6 +10,15 @@
     <AssemblyName>Viewer</AssemblyName>
     <!-- ポータブル設計: 設定は exe 隣に置く（仕様 §9） -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Resources\icon\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!-- Release ビルドでは PDB を一切出さない（= 配布バイナリにビルド機の作業パスが
+       PDB 参照として埋め込まれるのを防ぐ）。Debug ビルドは従来通り PDB あり。
+       chbrowser のビルド方針に準拠。 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
   <ItemGroup>

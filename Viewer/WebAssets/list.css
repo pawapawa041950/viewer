@@ -102,6 +102,11 @@ html, body {
   padding: 6px 2px;
   border-radius: 4px;
   cursor: default;
+  /* 画面外の項目はブラウザが描画(スタイル/レイアウト/ペイント)をスキップ＝大量項目でも
+     スクロールが軽い。DOM ノードは残るので選択/キーボード/reconcile/DnD/連動はそのまま動く。
+     contain-intrinsic-size は画面外時の推定サイズ（auto で一度描画した実寸を記憶し自己補正）。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--icon-size) auto calc(var(--icon-size) + 30px);
 }
 
 .file-item:hover { background: var(--hover); }

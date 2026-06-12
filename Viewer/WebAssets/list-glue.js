@@ -47,12 +47,23 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2000);
   }
 
-  // ---- 画像URL（通常 / 書庫内）。仕様 §3/§5。 ----
+  // ---- サムネイルのデコード目標サイズ（最大辺px）。アイコンサイズ×DPR を基準に上限つき。 ----
+  // ホストはこの値で縮小デコードして配信するため、フル解像度の大画像をレンダラ側で
+  // デコード/再描画せずに済み、スクロールが固まらない（仕様 §3）。
+  function thumbPx() {
+    const cs = getComputedStyle(document.documentElement).getPropertyValue('--icon-size');
+    let px = parseInt(cs, 10) || 120;
+    px = Math.round(px * (window.devicePixelRatio || 1));
+    return Math.max(96, Math.min(512, px));
+  }
+
+  // ---- 画像URL（通常 / 書庫内）。一覧はサムネイル（&t=）で要求。仕様 §3/§5。 ----
   function srcUrl(file) {
-    if (file.archivePath)
-      return 'https://file.viewer/raw?a=' + encodeURIComponent(file.archivePath) +
-             '&i=' + encodeURIComponent(file.innerPath || file.path);
-    return 'https://file.viewer/raw?p=' + encodeURIComponent(file.path);
+    const base = file.archivePath
+      ? 'https://file.viewer/raw?a=' + encodeURIComponent(file.archivePath) +
+        '&i=' + encodeURIComponent(file.innerPath || file.path)
+      : 'https://file.viewer/raw?p=' + encodeURIComponent(file.path);
+    return base + '&t=' + thumbPx();
   }
 
   // ---- file-list.js 初期化（選択・キーボード・DnD を委譲） ----
@@ -389,11 +400,12 @@
           if (myLoad !== loadSeq || !res || !document.body.contains(item)) return;
           const img = item.querySelector('.thumb-img');
           if (!img) return;
+          img.decoding = 'async'; // デコードをメインスレッド外へ（スクロールを固めない）
           img.addEventListener('load', () => {
             const box = img.closest('.thumb-host');
             if (box) box.classList.add('has-thumb'); // アイコンを左上へずらし、サムネイル表示
           }, { once: true });
-          img.src = urlFn(file, res);
+          img.src = urlFn(file, res) + '&t=' + thumbPx(); // 縮小デコードで配信させる
         }).catch(() => {});
       }
     }, { root: grid, rootMargin: '200px' });
@@ -422,6 +434,7 @@
         const img = new Image();
         img.className = 'file-icon';
         img.draggable = false;
+        img.decoding = 'async'; // デコードをメインスレッド外へ（スクロールを固めない）
         img.onload = () => {
           if (myLoad === loadSeq && document.body.contains(item)) placeholder.replaceWith(img);
           resolve();

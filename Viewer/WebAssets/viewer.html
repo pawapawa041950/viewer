@@ -20,6 +20,12 @@
   </div>
   <div id="layoutMenu" class="layout-menu hidden">
     <!-- レイアウトは layout3 固定。レイアウト選択 UI は排除（描画関数のソースは残置）。 -->
+    <div class="lm-section">表示枚数</div>
+    <div class="lm-slider-row">
+      <input type="range" id="countRange" min="1" max="16" step="1" />
+      <span id="countVal" class="lm-slider-val">1</span>
+    </div>
+    <div class="lm-sep"></div>
     <div class="lm-section">読み方向</div>
     <div class="lm-item" data-act="rtl" data-val="rtl"><span class="lm-check">&#10003;</span>右&#8594;左（漫画風）</div>
     <div class="lm-item" data-act="rtl" data-val="ltr"><span class="lm-check">&#10003;</span>左&#8594;右</div>

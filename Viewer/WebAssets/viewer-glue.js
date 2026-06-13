@@ -14,8 +14,7 @@
     index: 0,
     count: 1,          // 同時表示枚数（normal で 1..16, 仕様 §4.1）。当面は 1。
     readingRTL: true,  // 右→左（漫画風, 既定）
-    trim: false,       // トリミング有無（layout1/2 用の派生フラグ＝trimMode!=='none'）
-    trimMode: 'short', // レイアウト3のトリミング方式: none/both/vertical/horizontal/short/long
+    trimMode: 'short', // トリミング方式: none/both/vertical/horizontal/short/long
     cropPenalty: 0.6,  // トリミング抑制度（列数決定で切り取り面積をどれだけ嫌うか・大=切り取り回避）
     zoom: 1,
     panX: 0,
@@ -34,16 +33,14 @@
   }
 
   // ---- レイアウト・レジストリ（仕様 §4.2：レイアウト方式を切替可能にする） ----
-  // 「レイアウト名 → 描画関数」。メニュー/設定の layout 値（layout1/layout2…）で切り替える。
+  // 現状は layout3 のみ（旧 layout1/layout2 は廃止）。トリミング方式はメニューで切替（state.trimMode）。
   const layouts = {
-    layout1: renderLayout1, // 等サイズグリッド（縦を常に充填）
-    layout2: renderLayout2, // 均一高さの justified 行
-    layout3: renderLayout3, // 等サイズグリッド（各画像の長尺方向を充填）
+    layout3: renderLayout3, // 等サイズグリッド（各画像をトリミング方式に従って収める）
   };
-  let currentLayout = 'layout3'; // レイアウトは layout3 で固定（選択 UI は排除・他レイアウトのソースは残置）
+  let currentLayout = 'layout3'; // レイアウトは layout3 で固定
 
   function render() {
-    const fn = layouts[currentLayout] || layouts.layout1;
+    const fn = layouts[currentLayout] || layouts.layout3;
     fn();
     updateTitle();
     refreshOverlayIfVisible();
@@ -94,10 +91,6 @@
   // ---- アスペクト比キャッシュ（グリッド列数の決定に使う・仕様 §4.1） ----
   const COL_GAP = 2; // セル間(px)
   const ROW_GAP = 2; // 行間(px)
-  // トリミングON（レイアウト1・3）の改行判断で「クロップ（はみ出して隠れる）面積」に掛ける罰則。
-  // 大きいほど早く改行（クロップを嫌う）、小さいほど1行に詰める（クロップ許容）。0でクロップ無視。
-  // ※レイアウト3は state.cropPenalty（メニューの「トリミング抑制度」）を使う。これは layout1/2 用の既定。
-  const TRIM_CROP_PENALTY = 0.6;
   const aspectCache = new Map(); // key -> 幅/高さ
 
   // ---- レイアウト3：トリミング方式（メニューで選択）→ 各画像のセルへの収め方 ----
@@ -175,30 +168,6 @@
   // 再生成しないので img の再読込が起きない）。
   let currentCells = []; // [{ cell, img, im }]
 
-  // ===== レイアウト1：index から count 枚を「等サイズのグリッド」で表示 =====
-  // 全セルが同一サイズ（=平等）。枚数に応じて改行（複数行）し、全枚数を画面内に収める。
-  // トリミング ON はセルを埋める(cover・黒を最小化)、OFF は全体表示(contain)。1枚は常に全体表示。
-  function renderLayout1() {
-    stage.className = 'stage' + (state.readingRTL ? ' rtl' : '') + (state.trim ? ' trim' : '');
-    stage.innerHTML = '';
-    currentCells = [];
-
-    if (state.images.length === 0) { appendMarker('画像がありません'); return; }
-
-    const layer = document.createElement('div');
-    layer.id = 'zoomLayer';
-    layer.style.display = 'flex';
-    layer.style.flexDirection = 'column';
-    layer.style.alignItems = 'center';
-    layer.style.justifyContent = 'center';
-    layer.style.gap = ROW_GAP + 'px';
-    applyTransform(layer);
-    stage.appendChild(layer);
-
-    buildCells(layout);
-    layout();
-  }
-
   // index から count 個のセルを「画像…→末尾マーカー→最初の画像…」と循環して作る。
   // 末尾マーカー（state.endMarker 有効時）も1つのセルとして含める。重複表示は避ける（総数で打切）。
   function buildCells(relayout) {
@@ -259,123 +228,12 @@
     row.style.flexShrink = '0';
   }
 
-  // 等サイズグリッド・レイアウト本体。
-  //   - 全セルを同一サイズ（cellW×cellH）にして R 行 × C 列に並べる（=平等なサイズ）。
-  //   - 列数 C は「セルのアスペクト比が画像の平均アスペクト比に近づく」よう決める
-  //     （C ≒ √(枚数 × ウィンドウ縦横比 / 平均アスペクト比)）。これで漫画見開きは横2枚、
-  //     枚数が増えると自動で改行してグリッドになる。
-  //   - トリミング ON : object-fit cover（セルを埋める＝黒を最小化。セルは平均アスペクトに
-  //     近いので切り取りは小さい）。OFF : contain（全体表示・アスペクト差は黒）。
-  //   - 1 枚は常に contain（全体表示）。
-  function layout() {
-    const layer = document.getElementById('zoomLayer');
-    if (!layer || currentCells.length === 0) return;
-    const { W, H } = effDims();
-    const n = currentCells.length;
-
-    layer.innerHTML = '';
-
-    if (n === 1) {
-      const row = document.createElement('div');
-      styleRow(row);
-      const { cell, img, marker } = currentCells[0];
-      cell.style.flex = '0 0 auto';
-      cell.style.width = W + 'px';
-      cell.style.height = H + 'px';
-      if (marker) {
-        markerCellStyle(cell);
-      } else {
-        // セルいっぱいに contain（ウィンドウにフィット。小さい画像も拡大、全画面で更に拡大）。
-        img.style.maxWidth = ''; img.style.maxHeight = '';
-        img.style.width = '100%'; img.style.height = '100%';
-        img.style.flexShrink = ''; img.style.objectFit = 'contain';
-      }
-      row.appendChild(cell);
-      layer.appendChild(row);
-      return;
-    }
-
-    // 画像2枚以下はトリミングON でも切らない。
-    const aspects = currentCells.map((c) => getAspect(c.im));
-    const avgA = aspects.reduce((s, a) => s + a, 0) / n || 1;
-    const imageCount = currentCells.reduce((s, c) => s + (c.marker ? 0 : 1), 0);
-    const doTrim = state.trim && imageCount > 2;
-
-    // 列数 C を決定。
-    //  ・トリミングON：縦クロップ無しで「埋まる表示面積」を最大化（縦長は横一列に並ぶ）。
-    //  ・OFF：セルのアスペクトが平均画像アスペクトに最も近い C（黒/切り取り最小）。
-    let bestC = 1, bestScore = -Infinity;
-    for (let C = 1; C <= n; C++) {
-      const R = Math.ceil(n / C);
-      const cw = (W - COL_GAP * (C - 1)) / C;
-      const ch = (H - ROW_GAP * (R - 1)) / R;
-      if (cw <= 0 || ch <= 0) continue;
-      let score;
-      if (doTrim) {
-        // トリミングON（高さ充填）：表示面積−クロップで隠れる面積（λ=1）を最大化。
-        // 「可視面積の最大化」だと1行に詰めて過剰クロップになるため、隠れ面積を等価に罰して
-        // 適切に改行させる。
-        const shown = ch * Math.min(cw, ch * avgA);
-        const hidden = ch * Math.max(0, ch * avgA - cw);
-        score = shown - TRIM_CROP_PENALTY * hidden;
-      } else {
-        // トリミングなし(contain)：全画像が同サイズ(平均アスペクト avgA)と仮定し、1枚あたりに
-        // 表示される面積を最大化＝ウィンドウの非表示（黒）領域を最小化する列数を選ぶ。
-        const dispW = Math.min(cw, ch * avgA);
-        const dispH = Math.min(ch, cw / avgA);
-        score = dispW * dispH;
-      }
-      if (score > bestScore) { bestScore = score; bestC = C; }
-    }
-    const C = bestC;
-    const R = Math.ceil(n / C);
-    const cellW = (W - COL_GAP * (C - 1)) / C;
-    const cellH = (H - ROW_GAP * (R - 1)) / R;
-
-    for (let r = 0; r < R; r++) {
-      const row = document.createElement('div');
-      styleRow(row);
-      for (let cI = 0; cI < C; cI++) {
-        const idx = r * C + cI;
-        if (idx >= n) break;
-        const { cell, img, marker } = currentCells[idx];
-        cell.style.flex = '0 0 auto';
-        cell.style.width = cellW + 'px';
-        cell.style.height = cellH + 'px';
-        cell.style.overflow = 'hidden';
-        if (marker) {
-          markerCellStyle(cell);
-        } else if (doTrim) {
-          // 縦フル：高さを満たし幅は自動。上下端まで表示し、横がセルを超えたら左右クロップ。
-          // ※ .stage img の CSS（max-width/height:100%・object-fit:contain）と flex 縮小を
-          //   無効化しないと contain（黒帯）に戻ってしまうため、none / flex-shrink:0 を明示。
-          cell.style.display = 'flex';
-          cell.style.alignItems = 'center';
-          cell.style.justifyContent = 'center';
-          img.style.height = '100%'; img.style.width = 'auto';
-          img.style.maxWidth = 'none'; img.style.maxHeight = 'none';
-          img.style.flexShrink = '0'; img.style.objectFit = 'fill';
-        } else {
-          // 全体表示（切り取らない）。
-          cell.style.display = '';
-          img.style.width = '100%'; img.style.height = '100%';
-          img.style.maxWidth = ''; img.style.maxHeight = '';
-          img.style.flexShrink = ''; img.style.objectFit = 'contain';
-        }
-        row.appendChild(cell);
-      }
-      layer.appendChild(row);
-    }
-  }
-
-  // ===== レイアウト3：レイアウト1の派生 =====
-  // 違いはトリミングON時の充填/クロップの向き。レイアウト1は「常に縦（高さ）を充填」だが、
-  // レイアウト3は「その画像の長尺方向を充填・長尺方向はトリミングしない」：
-  //   ・縦長画像 → 高さ充填（上下フル・左右クロップ）。
-  //   ・横長画像 → 幅充填（左右フル・上下クロップ）。
-  // OFF / 2枚以下 / 1枚は contain（全体表示）でレイアウト1と同じ。列数選択もレイアウト1と同じ。
+  // ===== レイアウト3：等サイズグリッド＋トリミング方式選択 =====
+  // 全セルを同一サイズで R 行 × C 列に並べ、各画像を state.trimMode の方式で収める
+  // （contain / cover / 幅充填 / 高さ充填）。列数 C は trimCellScore（表示面積−抑制度×クロップ）が
+  // 最大になるものを選ぶ。2枚以下・1枚は contain（全体表示）。
   function renderLayout3() {
-    stage.className = 'stage' + (state.readingRTL ? ' rtl' : '') + (state.trim ? ' trim' : '');
+    stage.className = 'stage' + (state.readingRTL ? ' rtl' : '');
     stage.innerHTML = '';
     currentCells = [];
 
@@ -466,104 +324,6 @@
     }
   }
 
-  // ===== レイアウト2：均一高さの justified 行 =====
-  // ルール（ユーザー定義）：
-  //   ・全画像を「同じ高さ」で行に詰める（＝サイズを揃える）。行ごとに高さは変えない。
-  //   ・上下はトリミングしない（画像は常に全高表示）。トリミングONのときは行を画面高
-  //     いっぱい(H/R)にして、横にはみ出した分だけ左右をクロップ（全領域表示）。OFFは
-  //     切り取らず画面内に収める（黒可）。
-  //   ・改行は「改行すると各画像が大きくなるなら」する＝R(行数)を 1..n で試し、切り取らない
-  //     共通高さが最大になる R を選ぶ。
-  function renderLayout2() {
-    stage.className = 'stage' + (state.readingRTL ? ' rtl' : '') + (state.trim ? ' trim' : '');
-    stage.innerHTML = '';
-    currentCells = [];
-
-    if (state.images.length === 0) { appendMarker('画像がありません'); return; }
-
-    const layer = document.createElement('div');
-    layer.id = 'zoomLayer';
-    layer.style.display = 'flex';
-    layer.style.flexDirection = 'column';
-    layer.style.alignItems = 'center';
-    layer.style.justifyContent = 'center';
-    layer.style.gap = ROW_GAP + 'px';
-    applyTransform(layer);
-    stage.appendChild(layer);
-
-    buildCells(layout2);
-    layout2();
-  }
-
-  // 等サイズグリッド＋画像ごとの左右トリミング判断。
-  //   ・全ブロック同一サイズ（cellW×cellH）＝全画像できるだけ同じ大きさ。
-  //   ・列数 C は「各画像の表示面積が最大になる」よう選ぶ＝縦長/横長の比率で改行可否が決まる
-  //     （縦長が多い→列を増やして1行寄り、横長が多い→行が増えやすい）。
-  //   ・1ブロック内の表示はトリミングON時、画像ごとに自動判断：高さを満たし(上下クロップ無し)、
-  //     横がブロックを超える画像は左右クロップ／足りない画像は左右に黒（=都度判断）。OFFは全体表示。
-  function layout2() {
-    const layer = document.getElementById('zoomLayer');
-    if (!layer || currentCells.length === 0) return;
-    const { W, H } = effDims();
-    const n = currentCells.length;
-    layer.innerHTML = '';
-
-    const aspects = currentCells.map((c) => getAspect(c.im));
-    const avgA = aspects.reduce((s, a) => s + a, 0) / n || 1;
-
-    // 列数 C を「各画像の表示面積が最大」になるよう選ぶ（=改行で大きくなるなら改行）。
-    // 表示面積（上下クロップ無し）= cellH × min(cellW, cellH×平均アスペクト)。
-    let bestC = 1, bestScore = -Infinity;
-    for (let C = 1; C <= n; C++) {
-      const R = Math.ceil(n / C);
-      const cw = (W - COL_GAP * (C - 1)) / C;
-      const ch = (H - ROW_GAP * (R - 1)) / R;
-      if (cw <= 0 || ch <= 0) continue;
-      const score = ch * Math.min(cw, ch * avgA);
-      if (score > bestScore) { bestScore = score; bestC = C; }
-    }
-    const C = bestC;
-    const R = Math.ceil(n / C);
-    const cellW = (W - COL_GAP * (C - 1)) / C;
-    const cellH = (H - ROW_GAP * (R - 1)) / R;
-    // 画像が2枚以下のときはトリミングON でも切らない。
-    const imageCount = currentCells.reduce((s, c) => s + (c.marker ? 0 : 1), 0);
-    const doTrim = state.trim && imageCount > 2;
-
-    for (let r = 0; r < R; r++) {
-      const row = document.createElement('div');
-      styleRow(row);
-      for (let cI = 0; cI < C; cI++) {
-        const idx = r * C + cI;
-        if (idx >= n) break;
-        const { cell, img, marker } = currentCells[idx];
-        cell.style.flex = '0 0 auto';
-        cell.style.width = cellW + 'px';
-        cell.style.height = cellH + 'px';
-        cell.style.overflow = 'hidden';
-        cell.style.display = 'flex';
-        cell.style.alignItems = 'center';
-        cell.style.justifyContent = 'center';
-        if (marker) {
-          // 末尾マーカーのセル（画像なし・中央のテキスト）。
-        } else if (doTrim) {
-          // 上下は切らない：高さを満たし幅は自動。はみ出せば左右クロップ、足りなければ左右に黒。
-          // CSS の max-width/height と flex 縮小を無効化しないと contain に戻るため none/0 を明示。
-          img.style.height = '100%'; img.style.width = 'auto';
-          img.style.maxWidth = 'none'; img.style.maxHeight = 'none';
-          img.style.flexShrink = '0'; img.style.objectFit = 'fill';
-        } else {
-          // 全体表示（切り取らない）。
-          img.style.width = ''; img.style.height = '';
-          img.style.maxWidth = '100%'; img.style.maxHeight = '100%';
-          img.style.flexShrink = ''; img.style.objectFit = 'contain';
-        }
-        row.appendChild(cell);
-      }
-      layer.appendChild(row);
-    }
-  }
-
   function applyTransform(layer) {
     layer.style.transformOrigin = 'center center';
     layer.style.transform =
@@ -639,7 +399,6 @@
     if (typeof vs.trim_mode === 'string') state.trimMode = vs.trim_mode;
     if (typeof vs.trim === 'boolean') state.trimMode = vs.trim ? state.trimMode : 'none'; // 旧bool互換
     if (typeof vs.crop_penalty === 'number') state.cropPenalty = Math.max(0, Math.min(vs.crop_penalty, 5));
-    state.trim = state.trimMode !== 'none'; // layout1/2 用の派生フラグ
     if (typeof vs.end_marker === 'boolean') state.endMarker = vs.end_marker;
     if (typeof vs.loop === 'boolean') state.loop = vs.loop;                 // 末尾→先頭の循環
     if (typeof vs.preload === 'number') state.preload = Math.max(0, Math.min(vs.preload | 0, 50)); // 前後先読み枚数
@@ -694,9 +453,7 @@
 
   // ウィンドウ/フルスクリーンでサイズが変わったらレイアウトを再計算（画像は再読込しない）。
   function reflow() {
-    if (currentLayout === 'layout2') layout2();
-    else if (currentLayout === 'layout3') layout3();
-    else layout();
+    layout3();
     clampPan();        // サイズ変化に合わせてパンを制限し直す
     refreshTransform();
   }
@@ -756,12 +513,21 @@
     if (!im) return null;
     return im.archive_path ? { archivePath: im.archive_path, innerPath: im.inner_path } : { path: im.path };
   }
-  function changeCount(d) {
-    const next = Math.max(1, Math.min(state.count + d, 16));
+  function setCount(n) {
+    const next = Math.max(1, Math.min(n | 0, 16));
     if (next === state.count) return;
     state.count = next;
+    syncCountSlider();
     invoke('set_view_count', { count: state.count }).catch(() => {}); // 永続化
     render();
+  }
+  function changeCount(d) { setCount(state.count + d); }
+  // レイアウトメニュー内の表示枚数スライダーを現在値に合わせる（±ボタン操作時も同期）。
+  function syncCountSlider() {
+    const r = document.getElementById('countRange');
+    const v = document.getElementById('countVal');
+    if (r) r.value = state.count;
+    if (v) v.textContent = String(state.count);
   }
 
   // ---- オーバーレイ操作（右上＝表示枚数± / 左上＝表示メニュー）。マウス移動時のみ表示 ----
@@ -787,7 +553,8 @@
     document.getElementById('countDec').addEventListener('click', (e) => { e.stopPropagation(); changeCount(-1); revealControls(); });
   }
 
-  // 表示メニュー（読み方向 / トリミング方式 / トリミング抑制度）
+  // 表示メニュー（表示枚数 / 読み方向 / トリミング方式 / トリミング抑制度）
+  const countRange = document.getElementById('countRange');
   const cropPenaltyRange = document.getElementById('cropPenaltyRange');
   const cropPenaltyVal = document.getElementById('cropPenaltyVal');
   function updateLayoutMenu() {
@@ -800,6 +567,7 @@
       else if (act === 'trimmode') on = el.dataset.val === state.trimMode;
       el.classList.toggle('active', on);
     });
+    syncCountSlider();
     if (cropPenaltyRange) cropPenaltyRange.value = state.cropPenalty;
     if (cropPenaltyVal) cropPenaltyVal.textContent = Number(state.cropPenalty).toFixed(1);
   }
@@ -825,12 +593,16 @@
         render();
       } else if (act === 'trimmode') {
         state.trimMode = it.dataset.val;
-        state.trim = state.trimMode !== 'none'; // layout1/2 用の派生フラグ
         invoke('set_trim_mode', { mode: state.trimMode }).catch(() => {});
         render();
       }
       updateLayoutMenu(); // 続けて調整できるようメニューは開いたまま
     });
+    // 表示枚数スライダー（±ボタンと同じ setCount で反映・保存。±ボタンとも同期）。
+    if (countRange) {
+      countRange.addEventListener('input', () => { setCount(parseInt(countRange.value, 10)); });
+      countRange.addEventListener('mousedown', (e) => e.stopPropagation());
+    }
     // トリミング抑制度スライダー（live 反映・保存）。
     if (cropPenaltyRange) {
       cropPenaltyRange.addEventListener('input', () => {

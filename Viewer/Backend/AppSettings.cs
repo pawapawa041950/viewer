@@ -53,4 +53,5 @@ public sealed class AppSettings
     public bool ArchiveThumbnails { get; set; } = true;     // 圧縮ファイルのサムネイル（中の1枚目）
     public bool SyncListSelection { get; set; } = true;     // 表示している画像をファイル一覧上で選択する
     public bool SyncTreeSelection { get; set; } = true;     // 開いているフォルダをツリーで選択する
+    public bool ShowArchivesInTree { get; set; } = true;    // フォルダツリー：圧縮ファイルを表示する
 }

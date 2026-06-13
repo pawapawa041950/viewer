@@ -69,6 +69,7 @@ public partial class MainWindow : Window
         DetailsCol.Width = new GridLength(s.DetailsPaneWidth);
         if (s.WindowMaximized) WindowState = WindowState.Maximized;
         Backend.ListingService.ShowHidden = s.ShowHidden; // 隠しファイル表示（一覧/ツリー）
+        Shell.ShellTree.ShowArchivesInTree = s.ShowArchivesInTree; // ツリーに圧縮ファイルを表示
     }
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -166,6 +167,7 @@ public partial class MainWindow : Window
         archive_thumbnails = _settings.ArchiveThumbnails,
         sync_list_selection = _settings.SyncListSelection,
         sync_tree_selection = _settings.SyncTreeSelection,
+        show_archives_in_tree = _settings.ShowArchivesInTree,
     };
 
     // 設定ウィンドウからの変更を反映・保存。value は bool/string 混在のため JsonElement で受ける。
@@ -238,6 +240,12 @@ public partial class MainWindow : Window
                 _settings.SyncTreeSelection = Bool(args, "value");
                 SettingsService.Save(_settings);
                 if (_settings.SyncTreeSelection && !string.IsNullOrEmpty(_lastFolder)) _ = SelectInTree(_lastFolder);
+                break;
+            case "show_archives_in_tree":
+                _settings.ShowArchivesInTree = Bool(args, "value");
+                Shell.ShellTree.ShowArchivesInTree = _settings.ShowArchivesInTree;
+                SettingsService.Save(_settings);
+                BuildShellTree(); // ツリーを再構築して圧縮ファイルの表示/非表示を反映
                 break;
         }
     }
@@ -519,7 +527,8 @@ public partial class MainWindow : Window
         });
 
         // ファイル操作（削除はシェル IFileOperation でごみ箱へ・仕様 §2.0/A.2）
-        bridge.Register("move_to_trash", args => (object?)ShellFileOperations.Recycle(StrArray(args, "paths"), Hwnd));
+        // 所有者は操作中のウィンドウ（画像ウィンドウからの削除でメインへフォーカスが移らないように）。
+        bridge.Register("move_to_trash", args => (object?)ShellFileOperations.Recycle(StrArray(args, "paths"), ActiveOwnerHwnd()));
         // ペイン内 DnD：選択ファイルを宛先フォルダーへ移動（Ctrl ならコピー）。シェル委譲で
         // 競合解決・取り消し(Ctrl+Z)も Explorer と一致（仕様 §2.0/§2.2）。
         bridge.Register("drop_move_files", args =>
@@ -527,8 +536,8 @@ public partial class MainWindow : Window
             var paths = StrArray(args, "paths");
             var dest = Str(args, "destination");
             if (paths.Length == 0 || string.IsNullOrEmpty(dest) || !Directory.Exists(dest)) return (object?)null;
-            if (Bool(args, "copy")) ShellFileOperations.Copy(paths, dest, Hwnd, renameOnCollision: false);
-            else ShellFileOperations.Move(paths, dest, Hwnd);
+            if (Bool(args, "copy")) ShellFileOperations.Copy(paths, dest, ActiveOwnerHwnd(), renameOnCollision: false);
+            else ShellFileOperations.Move(paths, dest, ActiveOwnerHwnd());
             return (object?)null;
         });
         bridge.Register("rename_file", args =>
@@ -536,7 +545,7 @@ public partial class MainWindow : Window
             var oldPath = Str(args, "oldPath");
             var newName = Str(args, "newName");
             FileOpsService.ValidateNewName(newName); // 不正名は例外→フロントでトースト
-            ShellFileOperations.Rename(oldPath, newName, Hwnd); // シェル委譲（取り消し可・仕様 §2.0）
+            ShellFileOperations.Rename(oldPath, newName, ActiveOwnerHwnd()); // シェル委譲（取り消し可・仕様 §2.0）
             return (object?)null;
         });
 
@@ -922,6 +931,13 @@ public partial class MainWindow : Window
         if (_suppressTreeNavigate) return; // プログラムからの選択（一覧→ツリー同期）では一覧を動かさない
         if (e.NewValue is not TreeViewItem item || item.Tag is not ShellNode node) return;
 
+        // 圧縮ファイルは一覧で「書庫展開」する（フォルダー遷移ではない）。
+        if (node.IsArchive && !string.IsNullOrEmpty(node.FileSystemPath))
+        {
+            _listBridge?.EmitEvent("navigate_archive", new { path = node.FileSystemPath });
+            return;
+        }
+
         // 実フォルダー（ファイルシステムパスあり）はそのフォルダーへナビゲート。
         var path = node.FileSystemPath;
         if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
@@ -951,6 +967,27 @@ public partial class MainWindow : Window
 
     /// <summary>メインウィンドウのハンドル（シェル操作のダイアログ親に使う）。</summary>
     private IntPtr Hwnd => new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    /// <summary>シェル操作（IFileOperation）の所有者に渡すウィンドウ。
+    /// IFileOperation は所有者ウィンドウをアクティブ化するため、メインウィンドウ固定だと
+    /// 画像ウィンドウからの削除等でメインウィンドウへフォーカスが奪われてしまう。
+    /// いまのフォアグラウンドが自プロセスのウィンドウ（＝操作中の画像ウィンドウ等）なら
+    /// それを所有者にして、操作後もそのウィンドウがアクティブなままになるようにする。</summary>
+    private IntPtr ActiveOwnerHwnd()
+    {
+        var fg = GetForegroundWindow();
+        if (fg != IntPtr.Zero)
+        {
+            GetWindowThreadProcessId(fg, out var pid);
+            if (pid == (uint)Environment.ProcessId) return fg;
+        }
+        return Hwnd;
+    }
 
     // ---- タイトルバー（フレーム）配色：Windows 11 の DWM で指定（OS設定に依存しない） ----
     [DllImport("dwmapi.dll")]
@@ -1106,14 +1143,14 @@ public partial class MainWindow : Window
         int n;
         if (move)
         {
-            n = ShellFileOperations.Move(files, destination, Hwnd);
+            n = ShellFileOperations.Move(files, destination, ActiveOwnerHwnd());
             System.Windows.Clipboard.Clear(); // 移動済みのソースを参照し続けないように
         }
         else
         {
             // 同一フォルダーへのコピーは自動リネーム（「- コピー」）。別フォルダーは衝突時に
             // Explorer 標準の置換/スキップ ダイアログ（=自動リネームしない）。
-            n = ShellFileOperations.Copy(files, destination, Hwnd, renameOnCollision: allSameDir);
+            n = ShellFileOperations.Copy(files, destination, ActiveOwnerHwnd(), renameOnCollision: allSameDir);
         }
         return new { count = n, mode = move ? "move" : "copy" };
     }

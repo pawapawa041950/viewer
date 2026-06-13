@@ -19,6 +19,7 @@
   const archiveThumbs = document.getElementById('archive_thumbnails');
   const syncListSel = document.getElementById('sync_list_selection');
   const syncTreeSel = document.getElementById('sync_tree_selection');
+  const showArchivesInTree = document.getElementById('show_archives_in_tree');
   const startupRadios = Array.from(document.querySelectorAll('input[name="startup_mode"]'));
   const startupFolder = document.getElementById('startup_folder');
   const pickFolder = document.getElementById('pick_folder');
@@ -49,6 +50,7 @@
     archiveThumbs.checked = !!s.archive_thumbnails;
     syncListSel.checked = !!s.sync_list_selection;
     syncTreeSel.checked = !!s.sync_tree_selection;
+    showArchivesInTree.checked = !!s.show_archives_in_tree;
     const mode = s.startup_mode || 'last';
     startupRadios.forEach((r) => { r.checked = r.value === mode; });
     startupFolder.value = s.startup_folder || '';
@@ -72,6 +74,7 @@
   bindCheckbox(archiveThumbs, 'archive_thumbnails');
   bindCheckbox(syncListSel, 'sync_list_selection');
   bindCheckbox(syncTreeSel, 'sync_tree_selection');
+  bindCheckbox(showArchivesInTree, 'show_archives_in_tree');
   bindCheckbox(loopNav, 'loop_navigation');
 
   // 事前読み枚数。

@@ -15,17 +15,20 @@ public sealed class ShellNode
     /// <summary>絶対解析名（別スレッドで IShellItem を作り直すのに使う）。</summary>
     public string? ParsingName { get; }
     public bool HasChildren { get; }
+    /// <summary>圧縮ファイル（zip/7z/rar 等）のノードか。true ならツリー選択時に一覧で「書庫展開」する。</summary>
+    public bool IsArchive { get; }
     /// <summary>シェルアイコン（生成時に取得・凍結済み。UI スレッドからそのまま使える）。</summary>
     public System.Windows.Media.ImageSource? Icon { get; }
 
     internal ShellNode(string displayName, string? fsPath, string? parsingName, bool hasChildren,
-                       System.Windows.Media.ImageSource? icon)
+                       System.Windows.Media.ImageSource? icon, bool isArchive = false)
     {
         DisplayName = displayName;
         FileSystemPath = fsPath;
         ParsingName = parsingName;
         HasChildren = hasChildren;
         Icon = icon;
+        IsArchive = isArchive;
     }
 
     /// <summary>子フォルダーをバックグラウンドで列挙する（ネットワーク等でも UI を固めない）。</summary>
@@ -41,6 +44,10 @@ public sealed class ShellNode
 /// </summary>
 public static class ShellTree
 {
+    /// <summary>ツリーに圧縮ファイルを表示するか（設定「ツリー上に圧縮ファイルを表示する」）。
+    /// OFF のときは zip（シェルがフォルダー扱いする）も含めてツリーから除外する。</summary>
+    public static bool ShowArchivesInTree = true;
+
     /// <summary>
     /// ツリーのトップレベル。Windows 11 エクスプローラーのナビゲーションペインと同じ並び
     /// （ホーム→ギャラリー→OneDrive→デスクトップ→ダウンロード→ドキュメント→ピクチャ→
@@ -140,10 +147,18 @@ public static class ShellTree
     {
         try
         {
-            if (requireFolder)
+            var fsPath = GetName(item, ShellInterop.SIGDN.FILESYSPATH); // 仮想なら null
+            // 圧縮ファイルか（zip はシェルがフォルダー扱いするため拡張子で判定する）。
+            bool isArchive = !string.IsNullOrEmpty(fsPath) && Viewer.Backend.FileTypes.IsArchive(fsPath!);
+
+            if (isArchive)
+            {
+                if (!ShowArchivesInTree) return null; // 設定 OFF なら zip 含め非表示
+            }
+            else if (requireFolder)
             {
                 item.GetAttributes((uint)ShellInterop.SFGAO.FOLDER, out var attr);
-                if ((attr & (uint)ShellInterop.SFGAO.FOLDER) == 0) return null; // フォルダーのみ
+                if ((attr & (uint)ShellInterop.SFGAO.FOLDER) == 0) return null; // 圧縮以外のファイルは除外
             }
 
             // 隠しフォルダーは設定「隠しファイルを表示」がOFFなら除外（一覧の ShouldSkip と一致）。
@@ -154,14 +169,14 @@ public static class ShellTree
             }
 
             var name = GetName(item, ShellInterop.SIGDN.NORMALDISPLAY) ?? "";
-            var fsPath = GetName(item, ShellInterop.SIGDN.FILESYSPATH); // 仮想なら null
             var parsing = GetName(item, ShellInterop.SIGDN.DESKTOPABSOLUTEPARSING); // 再生成用
             var icon = ShellIcon.Get(item); // この時点（列挙スレッド）で取得＆凍結
 
-            // SFGAO_HASSUBFOLDER は「ネットワーク」等でネットワーク探索を伴い UI を
-            // 数秒～無期限ブロックすることがある。フォルダーは一律「展開可能」と仮定し、
-            // 実際の子は展開時に遅延列挙する（空なら展開時に葉になる）。仕様 §1.2。
-            return new ShellNode(name, fsPath, parsing, hasChildren: true, icon);
+            // 圧縮ファイルは葉ノード（ツリー内では展開せず、選択で一覧に中身を展開する）。
+            // フォルダーは SFGAO_HASSUBFOLDER がネットワーク等で UI をブロックするため一律
+            // 「展開可能」と仮定し、実際の子は展開時に遅延列挙する（仕様 §1.2）。
+            return new ShellNode(name, fsPath, parsing,
+                hasChildren: !isArchive, icon, isArchive: isArchive);
         }
         catch
         {

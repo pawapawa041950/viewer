@@ -640,6 +640,14 @@
       const p = e && e.payload && e.payload.path;
       if (p) loadFolder(p);
     });
+    // ツリーで圧縮ファイルを選択 → 一覧に中身を展開（親フォルダーを currentFolder として保持）。
+    window.__TAURI__.event.listen('navigate_archive', (e) => {
+      const p = e && e.payload && e.payload.path;
+      if (!p) return;
+      currentFolder = parentOf(p);
+      if (history[history.length - 1] !== currentFolder) history.push(currentFolder);
+      enterArchive(p);
+    });
     // 仮想フォルダー（PC/ホーム/ネットワーク等）選択時：子フォルダー（ドライブ等）を一覧表示。
     window.__TAURI__.event.listen('show_folders', (e) => {
       const p = e && e.payload;

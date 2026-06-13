@@ -12,6 +12,7 @@
     <nav class="cats">
       <div class="cat active" data-cat="overall">全体</div>
       <div class="cat" data-cat="filelist">ファイル一覧</div>
+      <div class="cat" data-cat="foldertree">フォルダツリー</div>
       <div class="cat" data-cat="imagewin">画像ウィンドウ</div>
     </nav>
 
@@ -74,6 +75,18 @@
           <input type="checkbox" id="sync_tree_selection" />
           <span>開いているフォルダをツリーで選択する</span>
         </label>
+      </section>
+
+      <section class="page hidden" data-page="foldertree">
+        <div class="page-head">
+          <h1>フォルダツリー</h1>
+          <p class="desc">左側のフォルダツリーの設定</p>
+        </div>
+        <label class="row">
+          <input type="checkbox" id="show_archives_in_tree" />
+          <span>ツリー上に圧縮ファイルを表示する</span>
+        </label>
+        <p class="hint">ZIP / 7z / RAR などをツリーに表示します。ツリー上で選択すると、ファイル一覧に中身が展開されます。</p>
       </section>
 
       <section class="page hidden" data-page="imagewin">

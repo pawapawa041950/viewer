@@ -38,7 +38,7 @@
     layout2: renderLayout2, // 均一高さの justified 行
     layout3: renderLayout3, // 等サイズグリッド（各画像の長尺方向を充填）
   };
-  let currentLayout = 'layout1';
+  let currentLayout = 'layout3'; // レイアウトは layout3 で固定（選択 UI は排除・他レイアウトのソースは残置）
 
   function render() {
     const fn = layouts[currentLayout] || layouts.layout1;
@@ -594,7 +594,7 @@
   // メニューバーの表示設定（レイアウト方式／表示枚数／読み方向／トリミング）を反映（仕様 §4.1/§4.2）。
   function applyViewSettings(vs) {
     if (!vs) return;
-    if (typeof vs.layout === 'string' && layouts[vs.layout]) currentLayout = vs.layout;
+    // レイアウトは layout3 固定のため、保存値（vs.layout）では切り替えない。
     if (typeof vs.view_count === 'number') state.count = Math.max(1, Math.min(vs.view_count, 16));
     if (typeof vs.reading_rtl === 'boolean') state.readingRTL = vs.reading_rtl;
     if (typeof vs.trim === 'boolean') state.trim = vs.trim;

@@ -96,6 +96,11 @@ html, body {
 
 .file-item {
   width: var(--icon-size);
+  /* 全アイテムを固定高さにして行高を均一化する。これにより content-visibility の
+     画面外推定サイズ(contain-intrinsic-size)と実寸が常に一致し、スクロール中に
+     全体の高さが変動してスクロールバーがずれる現象を防ぐ。 */
+  box-sizing: border-box;
+  height: calc(var(--icon-size) + 30px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -104,7 +109,7 @@ html, body {
   cursor: default;
   /* 画面外の項目はブラウザが描画(スタイル/レイアウト/ペイント)をスキップ＝大量項目でも
      スクロールが軽い。DOM ノードは残るので選択/キーボード/reconcile/DnD/連動はそのまま動く。
-     contain-intrinsic-size は画面外時の推定サイズ（auto で一度描画した実寸を記憶し自己補正）。 */
+     固定高さと同じ値を推定サイズに与えることで実寸と完全一致＝ずれない。 */
   content-visibility: auto;
   contain-intrinsic-size: auto var(--icon-size) auto calc(var(--icon-size) + 30px);
 }

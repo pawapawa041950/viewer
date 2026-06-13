@@ -29,7 +29,8 @@ public sealed class AppSettings
     public string SortMode { get; set; } = "name_asc";      // name_asc/name_desc/date_asc/date_desc
     public int ViewCount { get; set; } = 1;                 // 画像ウィンドウの同時表示枚数(1-16)
     public bool ReadingRtl { get; set; } = true;           // 右→左（漫画風）
-    public bool Trim { get; set; }                          // トリミング（敷き詰め）
+    public string TrimMode { get; set; } = "short";         // レイアウト3のトリミング方式（none/both/vertical/horizontal/short/long）
+    public double CropPenalty { get; set; } = 0.6;          // トリミング抑制度（列数決定で切り取り面積をどれだけ嫌うか）
     public bool FileNameWrap { get; set; }                  // ファイル名を折り返す（可変）。false=固定(1行省略)
     public string LayoutMode { get; set; } = "layout1";     // 画像ウィンドウのレイアウト方式（layout1/layout2…・仕様 §4.2）
 

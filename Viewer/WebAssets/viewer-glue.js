@@ -14,7 +14,9 @@
     index: 0,
     count: 1,          // 同時表示枚数（normal で 1..16, 仕様 §4.1）。当面は 1。
     readingRTL: true,  // 右→左（漫画風, 既定）
-    trim: false,       // トリミング
+    trim: false,       // トリミング有無（layout1/2 用の派生フラグ＝trimMode!=='none'）
+    trimMode: 'short', // レイアウト3のトリミング方式: none/both/vertical/horizontal/short/long
+    cropPenalty: 0.6,  // トリミング抑制度（列数決定で切り取り面積をどれだけ嫌うか・大=切り取り回避）
     zoom: 1,
     panX: 0,
     panY: 0,
@@ -94,8 +96,77 @@
   const ROW_GAP = 2; // 行間(px)
   // トリミングON（レイアウト1・3）の改行判断で「クロップ（はみ出して隠れる）面積」に掛ける罰則。
   // 大きいほど早く改行（クロップを嫌う）、小さいほど1行に詰める（クロップ許容）。0でクロップ無視。
+  // ※レイアウト3は state.cropPenalty（メニューの「トリミング抑制度」）を使う。これは layout1/2 用の既定。
   const TRIM_CROP_PENALTY = 0.6;
   const aspectCache = new Map(); // key -> 幅/高さ
+
+  // ---- レイアウト3：トリミング方式（メニューで選択）→ 各画像のセルへの収め方 ----
+  // 戻り値: 'contain' | 'cover' | 'fill-width' | 'fill-height'
+  //   contain     = 全体表示（切り取らない・余白可）
+  //   cover       = 縦横トリミング（セルを完全に埋める）
+  //   fill-width  = 幅をセルに合わせる（上下＝縦をクロップ）
+  //   fill-height = 高さをセルに合わせる（左右＝横をクロップ）
+  function trimTarget(mode, aspect) {
+    switch (mode) {
+      case 'none': return 'contain';
+      case 'both': return 'cover';
+      case 'vertical': return 'fill-width';    // 縦だけトリミング＝上下を切る
+      case 'horizontal': return 'fill-height'; // 横だけトリミング＝左右を切る
+      case 'short': return aspect <= 1 ? 'fill-height' : 'fill-width'; // 短尺を切る＝長尺を充填
+      case 'long':  return aspect <= 1 ? 'fill-width' : 'fill-height'; // 長尺を切る＝短尺を充填
+      default: return 'contain';
+    }
+  }
+
+  // 列数決定スコア：セル(cw×ch)に平均アスペクト avgA の画像を収め方 target で入れたときの
+  // 「表示面積 − 抑制度×クロップ面積」。contain は黒最小化＝表示面積最大。
+  function trimCellScore(cw, ch, avgA, mode, penalty) {
+    const target = trimTarget(mode, avgA);
+    if (target === 'contain') {
+      const dispW = Math.min(cw, ch * avgA);
+      const dispH = Math.min(ch, cw / avgA);
+      return dispW * dispH;
+    }
+    let shown, hidden;
+    if (target === 'cover') {
+      shown = cw * ch;
+      const hAtFullW = cw / avgA;          // 幅=cw のときの高さ
+      if (hAtFullW >= ch) hidden = cw * (hAtFullW - ch);       // 幅基準で覆う→上下はみ出し
+      else hidden = ch * (ch * avgA - cw);                     // 高さ基準→左右はみ出し
+    } else if (target === 'fill-width') {
+      const dispH = cw / avgA;
+      if (dispH >= ch) { shown = cw * ch; hidden = cw * (dispH - ch); } // 上下クロップ
+      else { shown = cw * dispH; hidden = 0; }                          // 収まる（余白）
+    } else { // fill-height
+      const dispW = ch * avgA;
+      if (dispW >= cw) { shown = ch * cw; hidden = ch * (dispW - cw); } // 左右クロップ
+      else { shown = ch * dispW; hidden = 0; }
+    }
+    return shown - penalty * hidden;
+  }
+
+  // 収め方 target を実際の cell/img スタイルへ適用（セルは overflow:hidden 前提）。
+  function applyTrimTarget(cell, img, target) {
+    if (target === 'contain') {
+      cell.style.display = '';
+      img.style.width = '100%'; img.style.height = '100%';
+      img.style.maxWidth = ''; img.style.maxHeight = '';
+      img.style.flexShrink = ''; img.style.objectFit = 'contain';
+      return;
+    }
+    cell.style.display = 'flex';
+    cell.style.alignItems = 'center';
+    cell.style.justifyContent = 'center';
+    img.style.maxWidth = 'none'; img.style.maxHeight = 'none';
+    img.style.flexShrink = '0';
+    if (target === 'cover') {
+      img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'cover';
+    } else if (target === 'fill-width') {
+      img.style.width = '100%'; img.style.height = 'auto'; img.style.objectFit = 'fill';
+    } else { // fill-height
+      img.style.height = '100%'; img.style.width = 'auto'; img.style.objectFit = 'fill';
+    }
+  }
   function aspectKey(im) { return im.archive_path ? (im.archive_path + '::' + im.inner_path) : im.path; }
   function getAspect(im) { const a = im && aspectCache.get(aspectKey(im)); return (a && a > 0) ? a : 1; }
   function setAspect(im, a) { if (im && a > 0) aspectCache.set(aspectKey(im), a); }
@@ -354,7 +425,8 @@
     const aspects = currentCells.map((c) => getAspect(c.im));
     const avgA = aspects.reduce((s, a) => s + a, 0) / n || 1;
     const imageCount = currentCells.reduce((s, c) => s + (c.marker ? 0 : 1), 0);
-    const doTrim = state.trim && imageCount > 2;
+    // 2枚以下はトリミングしない（従来仕様）。それ以外はメニューで選んだ方式。
+    const effMode = imageCount > 2 ? state.trimMode : 'none';
 
     let bestC = 1, bestScore = -Infinity;
     for (let C = 1; C <= n; C++) {
@@ -362,26 +434,8 @@
       const cw = (W - COL_GAP * (C - 1)) / C;
       const ch = (H - ROW_GAP * (R - 1)) / R;
       if (cw <= 0 || ch <= 0) continue;
-      let score;
-      if (doTrim) {
-        // トリミングON（各画像の長尺方向を充填）：表示面積−クロップで隠れる面積（λ=1）を最大化。
-        // 平均が縦長→高さ充填(左右クロップ)、横長→幅充填(上下クロップ)として評価。
-        let shown, hidden;
-        if (avgA <= 1) {
-          shown = ch * Math.min(cw, ch * avgA);
-          hidden = ch * Math.max(0, ch * avgA - cw);
-        } else {
-          shown = cw * Math.min(ch, cw / avgA);
-          hidden = cw * Math.max(0, cw / avgA - ch);
-        }
-        score = shown - TRIM_CROP_PENALTY * hidden;
-      } else {
-        // トリミングなし(contain)：全画像が同サイズ(平均アスペクト avgA)と仮定し、1枚あたりに
-        // 表示される面積を最大化＝ウィンドウの非表示（黒）領域を最小化する列数を選ぶ。
-        const dispW = Math.min(cw, ch * avgA);
-        const dispH = Math.min(ch, cw / avgA);
-        score = dispW * dispH;
-      }
+      // 選択中のトリミング方式での「表示面積−抑制度×クロップ面積」を最大化する列数を選ぶ。
+      const score = trimCellScore(cw, ch, avgA, effMode, state.cropPenalty);
       if (score > bestScore) { bestScore = score; bestC = C; }
     }
     const C = bestC;
@@ -402,24 +456,9 @@
         cell.style.overflow = 'hidden';
         if (marker) {
           markerCellStyle(cell);
-        } else if (doTrim) {
-          // 各画像の長尺方向を充填・トリミングしない（縦長=高さ充填、横長=幅充填）。
-          cell.style.display = 'flex';
-          cell.style.alignItems = 'center';
-          cell.style.justifyContent = 'center';
-          if (getAspect(im) > 1) { // 横長 → 幅充填（左右フル・上下クロップ）
-            img.style.width = '100%'; img.style.height = 'auto';
-          } else {                 // 縦長 → 高さ充填（上下フル・左右クロップ）
-            img.style.height = '100%'; img.style.width = 'auto';
-          }
-          img.style.maxWidth = 'none'; img.style.maxHeight = 'none';
-          img.style.flexShrink = '0'; img.style.objectFit = 'fill';
         } else {
-          // 全体表示（切り取らない）。
-          cell.style.display = '';
-          img.style.width = '100%'; img.style.height = '100%';
-          img.style.maxWidth = ''; img.style.maxHeight = '';
-          img.style.flexShrink = ''; img.style.objectFit = 'contain';
+          // 選択中のトリミング方式に従って各画像をセルへ収める。
+          applyTrimTarget(cell, img, trimTarget(effMode, getAspect(im)));
         }
         row.appendChild(cell);
       }
@@ -597,7 +636,10 @@
     // レイアウトは layout3 固定のため、保存値（vs.layout）では切り替えない。
     if (typeof vs.view_count === 'number') state.count = Math.max(1, Math.min(vs.view_count, 16));
     if (typeof vs.reading_rtl === 'boolean') state.readingRTL = vs.reading_rtl;
-    if (typeof vs.trim === 'boolean') state.trim = vs.trim;
+    if (typeof vs.trim_mode === 'string') state.trimMode = vs.trim_mode;
+    if (typeof vs.trim === 'boolean') state.trimMode = vs.trim ? state.trimMode : 'none'; // 旧bool互換
+    if (typeof vs.crop_penalty === 'number') state.cropPenalty = Math.max(0, Math.min(vs.crop_penalty, 5));
+    state.trim = state.trimMode !== 'none'; // layout1/2 用の派生フラグ
     if (typeof vs.end_marker === 'boolean') state.endMarker = vs.end_marker;
     if (typeof vs.loop === 'boolean') state.loop = vs.loop;                 // 末尾→先頭の循環
     if (typeof vs.preload === 'number') state.preload = Math.max(0, Math.min(vs.preload | 0, 50)); // 前後先読み枚数
@@ -745,7 +787,9 @@
     document.getElementById('countDec').addEventListener('click', (e) => { e.stopPropagation(); changeCount(-1); revealControls(); });
   }
 
-  // 表示メニュー（レイアウト方式 / 読み方向 / トリミング / ショートカット）
+  // 表示メニュー（読み方向 / トリミング方式 / トリミング抑制度）
+  const cropPenaltyRange = document.getElementById('cropPenaltyRange');
+  const cropPenaltyVal = document.getElementById('cropPenaltyVal');
   function updateLayoutMenu() {
     if (!layoutMenu) return;
     layoutMenu.querySelectorAll('.lm-item').forEach((el) => {
@@ -753,9 +797,11 @@
       let on = false;
       if (act === 'layout') on = el.dataset.val === currentLayout;
       else if (act === 'rtl') on = (el.dataset.val === 'rtl') === state.readingRTL;
-      else if (act === 'trim') on = state.trim;
+      else if (act === 'trimmode') on = el.dataset.val === state.trimMode;
       el.classList.toggle('active', on);
     });
+    if (cropPenaltyRange) cropPenaltyRange.value = state.cropPenalty;
+    if (cropPenaltyVal) cropPenaltyVal.textContent = Number(state.cropPenalty).toFixed(1);
   }
   if (layoutBtn && layoutMenu) {
     layoutBtn.addEventListener('click', (e) => {
@@ -777,13 +823,25 @@
         state.readingRTL = it.dataset.val === 'rtl';
         invoke('set_reading_rtl', { rtl: state.readingRTL }).catch(() => {});
         render();
-      } else if (act === 'trim') {
-        state.trim = !state.trim;
-        invoke('set_trim', { trim: state.trim }).catch(() => {});
+      } else if (act === 'trimmode') {
+        state.trimMode = it.dataset.val;
+        state.trim = state.trimMode !== 'none'; // layout1/2 用の派生フラグ
+        invoke('set_trim_mode', { mode: state.trimMode }).catch(() => {});
         render();
       }
       updateLayoutMenu(); // 続けて調整できるようメニューは開いたまま
     });
+    // トリミング抑制度スライダー（live 反映・保存）。
+    if (cropPenaltyRange) {
+      cropPenaltyRange.addEventListener('input', () => {
+        state.cropPenalty = parseFloat(cropPenaltyRange.value) || 0;
+        if (cropPenaltyVal) cropPenaltyVal.textContent = state.cropPenalty.toFixed(1);
+        invoke('set_crop_penalty', { value: state.cropPenalty }).catch(() => {});
+        reflow(); // 列数の再計算（軽量）。レイアウトのみ更新。
+      });
+      // スライダー操作でメニューが閉じないように。
+      cropPenaltyRange.addEventListener('mousedown', (e) => e.stopPropagation());
+    }
     // 外側クリックでメニューを閉じる。
     window.addEventListener('mousedown', (e) => {
       const t = e.target;

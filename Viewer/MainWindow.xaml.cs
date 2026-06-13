@@ -142,7 +142,8 @@ public partial class MainWindow : Window
         sort_mode = _settings.SortMode,
         view_count = _settings.ViewCount,
         reading_rtl = _settings.ReadingRtl,
-        trim = _settings.Trim,
+        trim_mode = _settings.TrimMode,
+        crop_penalty = _settings.CropPenalty,
         file_name_wrap = _settings.FileNameWrap,
         layout = _settings.LayoutMode,
         end_marker = _settings.EndMarker,
@@ -451,7 +452,8 @@ public partial class MainWindow : Window
         bridge.Register("set_view_count", args => { if (args.TryGetProperty("count", out var v) && v.TryGetInt32(out var n)) { _settings.ViewCount = Math.Clamp(n, 1, 16); SettingsService.Save(_settings); } return (object?)null; });
         bridge.Register("set_layout", args => { var m = Str(args, "mode"); if (!string.IsNullOrEmpty(m)) { _settings.LayoutMode = m; SettingsService.Save(_settings); } return (object?)null; });
         bridge.Register("set_reading_rtl", args => { _settings.ReadingRtl = Bool(args, "rtl"); SettingsService.Save(_settings); return (object?)null; });
-        bridge.Register("set_trim", args => { _settings.Trim = Bool(args, "trim"); SettingsService.Save(_settings); return (object?)null; });
+        bridge.Register("set_trim_mode", args => { var m = Str(args, "mode"); if (!string.IsNullOrEmpty(m)) { _settings.TrimMode = m; SettingsService.Save(_settings); } return (object?)null; });
+        bridge.Register("set_crop_penalty", args => { if (args.TryGetProperty("value", out var v) && v.TryGetDouble(out var d)) { _settings.CropPenalty = Math.Clamp(d, 0, 5); SettingsService.Save(_settings); } return (object?)null; });
         bridge.Register("open_shortcuts", _ => { OpenShortcutsWindow(); return (object?)null; });
 
         // 設定ウィンドウ（ツール → 設定）
@@ -677,7 +679,8 @@ public partial class MainWindow : Window
             // 新規に開く枚数：「決まった枚数」なら固定値、そうでなければ前回の枚数(ViewCount)。
             view_count = _settings.ImageCountMode == "fixed" ? _settings.ImageCountFixed : _settings.ViewCount,
             reading_rtl = _settings.ReadingRtl,
-            trim = _settings.Trim,
+            trim_mode = _settings.TrimMode,
+            crop_penalty = _settings.CropPenalty,
             layout = _settings.LayoutMode,
             end_marker = _settings.EndMarker,
             loop = _settings.LoopNavigation,

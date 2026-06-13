@@ -143,6 +143,9 @@ html, body {
 .layout-menu .lm-item:hover { background: rgba(255, 255, 255, 0.12); }
 .layout-menu .lm-check { width: 14px; text-align: center; color: #6cf; visibility: hidden; }
 .layout-menu .lm-item.active .lm-check { visibility: visible; }
+.layout-menu .lm-slider-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px 6px; }
+.layout-menu .lm-slider-row input[type="range"] { flex: 1; accent-color: #6cf; cursor: pointer; }
+.layout-menu .lm-slider-val { width: 28px; text-align: right; color: #cde; font-variant-numeric: tabular-nums; }
 
 .hint {
   position: absolute;

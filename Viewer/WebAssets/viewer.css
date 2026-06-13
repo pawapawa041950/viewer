@@ -53,13 +53,14 @@ html, body {
   transform-origin: center center;
 }
 
-/* 表示枚数の増減ボタン（右上・半透明・マウス移動時のみフェード表示） */
+/* 表示枚数の増減ボタン（レイアウトボタンの下に縦並び：＋ → −・半透明・マウス移動時のみフェード表示） */
 .count-controls {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 64px;   /* レイアウトボタン(top:14 + 高さ42) の下 */
+  left: 14px;
   z-index: 200;
   display: flex;
+  flex-direction: column;
   gap: 10px;
   opacity: 0;
   transition: opacity 0.25s;

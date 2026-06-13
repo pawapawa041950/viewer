@@ -10,14 +10,14 @@
   <div id="stage" class="stage"></div>
   <div id="overlay" class="overlay hidden"></div>
   <div id="hint" class="hint"></div>
-  <!-- 表示枚数の増減（右上・半透明・マウス移動時のみ表示） -->
-  <div id="countControls" class="count-controls">
-    <button id="countDec" class="count-btn" title="表示枚数を減らす">&#8722;</button>
-    <button id="countInc" class="count-btn" title="表示枚数を増やす">&#43;</button>
-  </div>
-
   <!-- 表示メニュー（左上・半透明・マウス移動時のみ表示）。元メインウィンドウのメニュー項目 -->
   <button id="layoutBtn" class="layout-btn" title="表示メニュー">&#9638;</button>
+
+  <!-- 表示枚数の増減（レイアウトボタンの下に縦並び：＋ → −・半透明・マウス移動時のみ表示） -->
+  <div id="countControls" class="count-controls">
+    <button id="countInc" class="count-btn" title="表示枚数を増やす">&#43;</button>
+    <button id="countDec" class="count-btn" title="表示枚数を減らす">&#8722;</button>
+  </div>
   <div id="layoutMenu" class="layout-menu hidden">
     <div class="lm-section">レイアウト方式</div>
     <div class="lm-item" data-act="layout" data-val="layout1"><span class="lm-check">&#10003;</span>レイアウト1（縦を充填）</div>

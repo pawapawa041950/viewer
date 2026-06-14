@@ -27,6 +27,7 @@
   const imgCountFixed = document.getElementById('image_count_fixed');
   const loopNav = document.getElementById('loop_navigation');
   const preloadCount = document.getElementById('preload_count');
+  const imgAlwaysOnTop = document.getElementById('image_window_always_on_top');
 
   // 「決まったフォルダ」選択時だけパス入力／参照ボタンを有効化。
   function syncStartupEnabled() {
@@ -61,6 +62,7 @@
     syncImgCountEnabled();
     loopNav.checked = !!s.loop_navigation;
     preloadCount.value = (typeof s.preload_count === 'number') ? s.preload_count : 3;
+    imgAlwaysOnTop.checked = s.image_window_always_on_top !== false;
   }).catch(() => {});
 
   function bindCheckbox(el, key) {
@@ -76,6 +78,7 @@
   bindCheckbox(syncTreeSel, 'sync_tree_selection');
   bindCheckbox(showArchivesInTree, 'show_archives_in_tree');
   bindCheckbox(loopNav, 'loop_navigation');
+  bindCheckbox(imgAlwaysOnTop, 'image_window_always_on_top');
 
   // 事前読み枚数。
   preloadCount.addEventListener('change', () => {

@@ -23,6 +23,7 @@ public sealed class AppSettings
     public double? ImageWindowLeft { get; set; }
     public double? ImageWindowTop { get; set; }
     public bool ImageWindowMaximized { get; set; }
+    public bool ImageWindowAlwaysOnTop { get; set; } = true; // 画像ウィンドウをメインウィンドウの前に常に表示する
 
     // 表示設定（メニューバーから変更・仕様 §1.1/§4.1）
     public double IconSize { get; set; } = 120;             // 一覧アイコンサイズ(px)

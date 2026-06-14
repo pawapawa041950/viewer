@@ -169,6 +169,7 @@ public partial class MainWindow : Window
         sync_list_selection = _settings.SyncListSelection,
         sync_tree_selection = _settings.SyncTreeSelection,
         show_archives_in_tree = _settings.ShowArchivesInTree,
+        image_window_always_on_top = _settings.ImageWindowAlwaysOnTop,
     };
 
     // 設定ウィンドウからの変更を反映・保存。value は bool/string 混在のため JsonElement で受ける。
@@ -247,6 +248,12 @@ public partial class MainWindow : Window
                 Shell.ShellTree.ShowArchivesInTree = _settings.ShowArchivesInTree;
                 SettingsService.Save(_settings);
                 BuildShellTree(); // ツリーを再構築して圧縮ファイルの表示/非表示を反映
+                break;
+            case "image_window_always_on_top":
+                _settings.ImageWindowAlwaysOnTop = Bool(args, "value");
+                SettingsService.Save(_settings);
+                // 開いている画像ウィンドウに即時反映（Owner の付け外しで常駐/独立を切替）。
+                if (_imageWindow != null) _imageWindow.Owner = _settings.ImageWindowAlwaysOnTop ? this : null;
                 break;
         }
     }
@@ -689,7 +696,8 @@ public partial class MainWindow : Window
 
         if (_imageWindow == null)
         {
-            _imageWindow = new ImageWindow { Owner = this };
+            // Owner を持たせるとメインウィンドウの前に常駐する。OFF 時は Owner=null で独立ウィンドウ化。
+            _imageWindow = new ImageWindow { Owner = _settings.ImageWindowAlwaysOnTop ? this : null };
 
             // 保存済みのサイズ/位置を復元（仕様 §4 / §9）。
             _imageWindow.Width = _settings.ImageWindowWidth;

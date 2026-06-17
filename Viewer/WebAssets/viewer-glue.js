@@ -640,9 +640,9 @@
   const CAT = '画像ウィンドウ';
   if (window.ShortcutDispatch) {
     ShortcutDispatch.registerAll({
-      'viewer.prev_image': () => go(-1),
-      'viewer.next_image': () => go(1),
-      'viewer.slide_forward': () => go(1),
+      'viewer.prev_image': () => go(-state.count),  // 表示枚数分まとめて戻る（ページ送り）
+      'viewer.next_image': () => go(state.count),    // 表示枚数分まとめて進む（ページ送り）
+      'viewer.slide_forward': () => go(1),           // 1枚だけスライド
       'viewer.slide_backward': () => go(-1),
       'viewer.increase_count': () => changeCount(1),
       'viewer.decrease_count': () => changeCount(-1),

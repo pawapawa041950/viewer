@@ -367,6 +367,17 @@
         if (file.is_image) imageItems.push({ item, file });
         else if (file.is_archive && showArchiveThumbs) archiveItems.push({ item, file });
         else if (file.is_dir && showFolderThumbs) folderItems.push({ item, file });
+      } else {
+        // 既存ノードでも、サムネイル未読込のものは loadSeq の更新で前世代のロードが
+        // 打ち切られている。新世代で再キューしないと読み込みが止まったままになる。
+        // （画像＝placeholder が残存 / 圧縮・フォルダ＝thumb-host が has-thumb 未付与）
+        if (file.is_image) {
+          if (item.querySelector('.file-icon.placeholder')) imageItems.push({ item, file });
+        } else if (file.is_archive && showArchiveThumbs) {
+          if (!item.querySelector('.thumb-host.has-thumb')) archiveItems.push({ item, file });
+        } else if (file.is_dir && showFolderThumbs) {
+          if (!item.querySelector('.thumb-host.has-thumb')) folderItems.push({ item, file });
+        }
       }
       grid.appendChild(item);
     }

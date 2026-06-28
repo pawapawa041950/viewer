@@ -37,8 +37,16 @@
                   Background="#F0EEE6" Foreground="#2B2A27" BorderThickness="0"
                   Padding="0,4,0,0"
                   SelectedItemChanged="FolderTree_SelectedItemChanged"
-                  TreeViewItem.Expanded="FolderTree_Expanded">
+                  TreeViewItem.Expanded="FolderTree_Expanded"
+                  PreviewMouseDown="FolderTree_PreviewMouseDown"
+                  PreviewMouseRightButtonDown="FolderTree_PreviewMouseRightButtonDown">
             <TreeView.Resources>
+                <!-- フォーカスが無いとき（一覧移動でプログラム選択された等）の選択色を、
+                     クリック選択時と同じハイライト色にする（既定の薄いグレーだと背景と紛らわしいため）。 -->
+                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"
+                                 Color="{x:Static SystemColors.HighlightColor}" />
+                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}"
+                                 Color="{x:Static SystemColors.HighlightTextColor}" />
                 <Style TargetType="TreeViewItem">
                     <Setter Property="Foreground" Value="#2B2A27" />
                     <!-- 各アイテムの上下に余白（≒1/4ライン）を入れて隙間を開ける -->
@@ -51,12 +59,26 @@
         <Border Grid.Column="1" Width="1" Background="#E0DCD0" HorizontalAlignment="Center" />
         <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="Transparent" />
 
-        <wv2:WebView2 x:Name="ListView" Grid.Column="2" />
+        <!-- 中央: タブ化されたファイル一覧。タブバーは WPF（見出しのみ）、各タブの中身は
+             TabContentHost に常駐する WebView2（切替は Visibility のみ・付け替えない）。 -->
+        <DockPanel Grid.Column="2">
+            <Border DockPanel.Dock="Top" Background="#E8E5DB"
+                    BorderBrush="#E0DCD0" BorderThickness="0,0,0,1">
+                <!-- 横幅に入りきらない数のタブは複数段に折り返す（WrapPanel）。段が増えすぎたら
+                     縦スクロール（横スクロールは無効＝幅で折り返させる）。＋ ボタンは末尾に維持。 -->
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                              MaxHeight="160">
+                    <WrapPanel x:Name="TabStripPanel" Orientation="Horizontal" />
+                </ScrollViewer>
+            </Border>
+            <Grid x:Name="TabContentHost" />
+        </DockPanel>
 
         <Border Grid.Column="3" Width="1" Background="#E0DCD0" HorizontalAlignment="Center" />
         <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch" Background="Transparent" />
 
-        <wv2:WebView2 x:Name="DetailsView" Grid.Column="4" />
+        <!-- 右: 詳細（タブごとの WebView2 が常駐。切替は Visibility のみ） -->
+        <Grid x:Name="DetailsHost" Grid.Column="4" />
     </Grid>
   </DockPanel>
 </Window>

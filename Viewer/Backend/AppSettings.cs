@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Viewer.Backend;
 
 /// <summary>
@@ -24,6 +26,7 @@ public sealed class AppSettings
     public double? ImageWindowTop { get; set; }
     public bool ImageWindowMaximized { get; set; }
     public bool ImageWindowAlwaysOnTop { get; set; } = true; // 画像ウィンドウをメインウィンドウの前に常に表示する
+    public bool ImageWindowPerTab { get; set; }              // タブごとに画像ウィンドウを開く（false=全タブ共有の1ウィンドウ）
 
     // 表示設定（メニューバーから変更・仕様 §1.1/§4.1）
     public double IconSize { get; set; } = 120;             // 一覧アイコンサイズ(px)
@@ -42,7 +45,11 @@ public sealed class AppSettings
     // 全体：起動時に開くフォルダ
     public string StartupMode { get; set; } = "last";       // "last"=前回 / "fixed"=決まったフォルダ / "none"=開かない
     public string StartupFolder { get; set; } = "";         // "fixed" のときのフォルダパス
-    public string LastFolder { get; set; } = "";            // 前回終了時に開いていたフォルダ（"last" 用）
+    public string LastFolder { get; set; } = "";            // 前回終了時に開いていたフォルダ（"last" 用・互換）
+
+    // 前回終了時のタブ群（"last" 起動時に全タブ復元）。各要素はフォルダパス（""=空タブ）。
+    public List<string> OpenTabs { get; set; } = new();
+    public int ActiveTabIndex { get; set; }                 // 復元時にアクティブにするタブの index
 
     // 画像ウィンドウ：新規に開いたときの表示枚数
     public string ImageCountMode { get; set; } = "last";    // "last"=前回開いていた枚数 / "fixed"=決まった枚数

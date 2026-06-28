@@ -569,4 +569,7 @@
     // フォルダーが変わったらタグ一覧を再構築（仕様 §7）。
     window.__TAURI__.event.listen('folder_changed', () => loadTagsForDirectory());
   }
+  // 初期化直後にこのタブのフォルダのタグを取得（folder_changed をリスナー登録前に
+  // 取り逃しても、ここで現在フォルダ分を読み込んで整合させる。タブごと詳細インスタンス用）。
+  loadTagsForDirectory().catch(() => {});
 })();

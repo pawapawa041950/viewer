@@ -107,6 +107,19 @@ const FileList = (function () {
       },
       'filelist.go_back': () => { opts.onGoBack && opts.onGoBack(); },   // 履歴で戻る
       'filelist.go_up':   () => { opts.onGoUp && opts.onGoUp(); },       // 親フォルダーへ
+      'filelist.open_new_tab': () => {
+        // 対象＝ダブルクリックした項目（マウス）／フォーカス・単一選択の項目（キーボード）。
+        const item = dblTargetItem
+          || grid.querySelector('.file-item.focused')
+          || (grid.querySelectorAll('.file-item.selected').length === 1
+                ? grid.querySelector('.file-item.selected') : null);
+        if (!item) return;
+        if (item.dataset.type === 'folder') {
+          opts.onOpenFolderNewTab && opts.onOpenFolderNewTab(item.dataset.path);
+        } else {
+          openItem(item); // フォルダ以外は通常の開く動作にフォールバック
+        }
+      },
       'filelist.delete':         () => {
         const items = Array.from(grid.querySelectorAll('.file-item.selected'));
         if (items.length > 0) opts.onDeleted && opts.onDeleted(items.map((it) => it.dataset.path));
@@ -548,11 +561,25 @@ const FileList = (function () {
 
   // ---- double-click ----
 
+  let dblTargetItem = null; // ダブルクリック対象（マウスショートカット用に一時保持）
+
   function handleDblClick(e) {
     const item = e.target.closest('.file-item');
     if (!item) return;
     e.preventDefault();
     e.stopPropagation();
+    // マウスショートカット（例: Ctrl+ダブルクリック=新しいタブで開く）を優先。
+    // 通常のダブルクリック（filelist.open）は従来どおり openItem で開く。
+    const D = (typeof window !== 'undefined') && window.ShortcutDispatch;
+    if (D && D.isLoaded()) {
+      const id = D.actionForMouse('ファイル一覧ペイン', e, 'dblclick');
+      if (id && id !== 'filelist.open') {
+        dblTargetItem = item;
+        const handled = D.runAction(id, e);
+        dblTargetItem = null;
+        if (handled) return;
+      }
+    }
     openItem(item);
   }
 

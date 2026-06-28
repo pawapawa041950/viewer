@@ -33,10 +33,19 @@ html, body {
 }
 .header-path {
   flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  user-select: text;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg, #fff);
+  border: 1px solid var(--border-color, #c8c8c8);
+  border-radius: 4px;
+  padding: 2px 6px;
+  height: 20px;
+  box-sizing: border-box;
+  outline: none;
+}
+.header-path:focus {
+  border-color: #0078d7;
 }
 .header-tools { display: flex; gap: 4px; flex-shrink: 0; }
 .tool-btn {

@@ -42,8 +42,14 @@ public sealed class IpcBridge
     {
         void Send()
         {
-            var msg = JsonSerializer.Serialize(new EventMessage(name, payload), Json.Options);
-            _core.PostWebMessageAsJson(msg);
+            // WebView2 が破棄済み（タブを閉じた直後の遅延コールバック等）だと
+            // PostWebMessageAsJson が InvalidOperationException を投げるため握りつぶす。
+            try
+            {
+                var msg = JsonSerializer.Serialize(new EventMessage(name, payload), Json.Options);
+                _core.PostWebMessageAsJson(msg);
+            }
+            catch { /* 破棄済み WebView2 への送信は無視 */ }
         }
         if (_dispatcher.CheckAccess()) Send();
         else _dispatcher.BeginInvoke(Send);

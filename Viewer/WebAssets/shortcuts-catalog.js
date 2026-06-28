@@ -18,7 +18,7 @@
 (function (root) {
   "use strict";
 
-  const CATEGORIES = ["ファイル一覧ペイン", "画像ウィンドウ"];
+  const CATEGORIES = ["ファイル一覧ペイン", "フォルダツリー", "画像ウィンドウ"];
 
   const ACTIONS = [
     // ファイル一覧ペイン (FileList が所有する操作)
@@ -40,6 +40,14 @@
     { id: "filelist.cut",            category: "ファイル一覧ペイン", name: "切り取り",               defaultShortcut: "Ctrl+X",      defaultMouse: "",            defaultGesture: "" },
     { id: "filelist.paste",          category: "ファイル一覧ペイン", name: "貼り付け",               defaultShortcut: "Ctrl+V",      defaultMouse: "",            defaultGesture: "" },
     { id: "filelist.context_menu",   category: "ファイル一覧ペイン", name: "コンテキストメニュー",   defaultShortcut: "",            defaultMouse: "右クリック",      defaultGesture: "" },
+    { id: "filelist.new_tab",        category: "ファイル一覧ペイン", name: "新しいタブ（現フォルダ）", defaultShortcut: "Ctrl+T",     defaultMouse: "",            defaultGesture: "" },
+    { id: "filelist.close_tab",      category: "ファイル一覧ペイン", name: "タブを閉じる",           defaultShortcut: "Ctrl+F4",     defaultMouse: "",            defaultGesture: "" },
+    { id: "filelist.next_tab",       category: "ファイル一覧ペイン", name: "次のタブ",               defaultShortcut: "Ctrl+Tab",    defaultMouse: "",            defaultGesture: "" },
+    { id: "filelist.prev_tab",       category: "ファイル一覧ペイン", name: "前のタブ",               defaultShortcut: "Ctrl+Shift+Tab", defaultMouse: "",         defaultGesture: "" },
+    { id: "filelist.open_new_tab",   category: "ファイル一覧ペイン", name: "フォルダを新しいタブで開く", defaultShortcut: "",         defaultMouse: "Ctrl+ダブルクリック", defaultGesture: "" },
+
+    // フォルダツリー（左ペイン・WPF ネイティブ。ホスト側で割当を解決して処理する）
+    { id: "tree.open_new_tab",       category: "フォルダツリー", name: "新しいタブで開く",           defaultShortcut: "",           defaultMouse: "Ctrl+左クリック",      defaultGesture: "" },
 
     // 画像ウィンドウ (viewer.html)
     { id: "viewer.toggle_fullscreen",category: "画像ウィンドウ", name: "フルスクリーン切替",        defaultShortcut: "F11",        defaultMouse: "",                     defaultGesture: "" },

@@ -78,6 +78,7 @@
       else { loadFolder(path); invoke('host_navigated', { path }); }
     },
     onOpenArchive: (path) => { enterArchive(path); },
+    onOpenFolderNewTab: (path) => { invoke('new_tab_with_folder', { path }).catch(() => {}); },
     onSelectionChanged: () => { invoke('selection_changed', { paths: FileList.getSelectedPaths(), archivePath: currentArchive }); },
     showToast,
     onRenamed: async () => { await loadLocation(); },
@@ -100,6 +101,11 @@
     ShortcutDispatch.register('filelist.copy', () => clipboardCopy(false));
     ShortcutDispatch.register('filelist.cut', () => clipboardCopy(true));
     ShortcutDispatch.register('filelist.paste', () => clipboardPaste());
+    // タブ操作（host 側で実処理。既定 Ctrl+T/W/Tab）。
+    ShortcutDispatch.register('filelist.new_tab', () => invoke('new_tab').catch(() => {}));
+    ShortcutDispatch.register('filelist.close_tab', () => invoke('close_tab').catch(() => {}));
+    ShortcutDispatch.register('filelist.next_tab', () => invoke('switch_tab', { delta: 1 }).catch(() => {}));
+    ShortcutDispatch.register('filelist.prev_tab', () => invoke('switch_tab', { delta: -1 }).catch(() => {}));
     ShortcutDispatch.load().catch(() => {});
   }
 
@@ -119,8 +125,8 @@
   }
   // 起動時に現在値を取得して適用。
   invoke('get_view_settings').then((vs) => applyViewSettings(vs, false)).catch(() => {});
-  // 起動時に開くフォルダ（設定「全体 → 起動時に開くフォルダ」）。none/未存在なら何もしない。
-  invoke('get_startup_folder').then((p) => { if (p) loadFolder(p); }).catch(() => {});
+  // このタブが最初に開くフォルダ（host がタブ生成時に決定）。空なら空タブのまま。
+  invoke('get_initial_folder').then((p) => { if (p) loadFolder(p); }).catch(() => {});
 
   // ---- アドレスバーのツール（ソート選択 / アイコンサイズ調整） ----
   const sortBtn = document.getElementById('sortBtn');
@@ -236,7 +242,8 @@
     hideSpinner();             // list_loading で出していたスピナーを消す
     currentFolder = null; currentArchive = null; currentInner = ''; tagFilter = null;
     invoke('watch_folder', { path: '' }); // 仮想なので監視停止
-    headerPath.textContent = title || '';
+    headerPath.value = title || '';
+    invoke('set_tab_title', { title: title || '' }).catch(() => {});
     grid.innerHTML = '';
     for (const f of folders) {
       const file = { path: f.path, name: f.name, is_dir: true, is_image: false, is_archive: false };
@@ -278,9 +285,16 @@
     const inArchive = !!currentArchive;
     const archiveAtLoad = currentArchive;
 
-    headerPath.textContent = inArchive
+    headerPath.value = inArchive
       ? (currentArchive + (currentInner ? '::' + currentInner : '::'))
       : (currentFolder || '');
+
+    // タブ見出しを更新（フォルダ名／書庫名）。
+    invoke('set_tab_title', {
+      title: inArchive
+        ? (baseName(currentArchive) + (currentInner ? ' / ' + baseName(currentInner) : ''))
+        : (currentFolder ? (baseName(currentFolder) || currentFolder) : ''),
+    }).catch(() => {});
 
     // 表示中フォルダーの監視対象をホストへ通知（仕様 §1.5）。書庫内は監視停止。
     invoke('watch_folder', { path: inArchive ? '' : (currentFolder || '') });
@@ -587,8 +601,10 @@
     const sel = FileList.getSelectedPaths();
     const single = sel.length === 1;
     const inArc = !!currentArchive;
+    const isFolder = single && itemEl(sel[0])?.dataset.type === 'folder';
     return [
       { label: '開く', action: () => openPath(sel[0]), disabled: !single },
+      { label: '新しいタブで開く', action: () => invoke('new_tab_with_folder', { path: sel[0] }), disabled: !isFolder || inArc },
       'sep',
       { label: '切り取り', action: () => clipboardCopy(true), disabled: inArc },
       { label: 'コピー', action: () => clipboardCopy(false), disabled: inArc },
@@ -645,6 +661,36 @@
   });
   grid.addEventListener('scroll', hideMenu, true);
 
+  // ---- アドレスバー手入力（パスを入力して Enter で開く） ----
+  // 正しいフォルダー → そのフォルダーへ。正しい圧縮ファイル → 書庫として開く。
+  // 不正なパスはトーストで通知し、入力を現在地に戻す。
+  headerPath.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { restoreHeaderPath(); headerPath.blur(); return; }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const p = headerPath.value.trim().replace(/^"(.*)"$/, '$1'); // 前後の "" を除去
+    if (!p) { restoreHeaderPath(); return; }
+    invoke('resolve_path', { path: p }).then((r) => {
+      if (!r || r.kind === 'none') { showToast('パスが見つかりません: ' + p); restoreHeaderPath(); return; }
+      if (r.kind === 'folder') {
+        loadFolder(r.path);
+        invoke('host_navigated', { path: r.path });
+      } else if (r.kind === 'archive') {
+        currentFolder = parentOf(r.path);
+        if (history[history.length - 1] !== currentFolder) history.push(currentFolder);
+        enterArchive(r.path);
+      }
+    }).catch(() => { showToast('パスを開けませんでした'); restoreHeaderPath(); });
+  });
+  // フォーカス時に全選択（パスを差し替えやすく）。
+  headerPath.addEventListener('focus', () => headerPath.select());
+  // 現在のロケーションをアドレスバーに復元（入力キャンセル・失敗時）。
+  function restoreHeaderPath() {
+    headerPath.value = currentArchive
+      ? (currentArchive + (currentInner ? '::' + currentInner : '::'))
+      : (currentFolder || '');
+  }
+
   // ---- ホストからのナビゲーション / フォルダー変更通知 ----
   if (window.__TAURI__ && window.__TAURI__.event) {
     window.__TAURI__.event.listen('navigate', (e) => {
@@ -675,6 +721,17 @@
     window.__TAURI__.event.listen('reload_list', () => reconcile());
     // サムネイル表示切替など、アイテムを作り直す必要がある場合は全再読込。
     window.__TAURI__.event.listen('reload_list_full', () => { if (currentFolder || currentArchive) loadLocation(); });
+    // 最後のタブを閉じる操作 → このタブを空（何も開いていない状態）にリセット。
+    window.__TAURI__.event.listen('tab_make_empty', () => {
+      loadSeq++;
+      hideSpinner();
+      currentFolder = null; currentArchive = null; currentInner = ''; tagFilter = null; history = [];
+      grid.innerHTML = '';
+      headerPath.value = '';
+      invoke('set_tab_title', { title: '' }).catch(() => {});
+      FileList.clearSelection();
+      invoke('selection_changed', { paths: [], archivePath: null });
+    });
     // ビューワで表示中の画像を一覧で選択（設定「表示している画像をファイル一覧上で選択する」）。
     window.__TAURI__.event.listen('select_image', (e) => {
       const p = e && e.payload && e.payload.path;

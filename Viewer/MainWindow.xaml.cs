@@ -596,11 +596,17 @@ public partial class MainWindow : Window
         chip.PreviewMouseLeftButtonUp += (_, e) =>
         {
             if (!ReferenceEquals(_dragTab, tab)) return;
+            // ReleaseMouseCapture は LostMouseCapture を同期発火させ _drag* を null に戻すため、
+            // 必要な値を先に退避してから解放する（退避しないとドロップが毎回キャンセルされる）。
+            var moved = _dragMoved;
+            var dragged = _dragTab;
+            var target = _dropTarget;
+            var after = _dropAfter;
             if (chip.IsMouseCaptured) chip.ReleaseMouseCapture();
-            if (_dragMoved) CommitTabDrop();
-            else ActivateTab(tab); // 動いていなければ通常クリック＝アクティブ化
-            ClearDragMarker();
             _dragTab = null; _dragMoved = false; _dropTarget = null;
+            ClearDragMarker();
+            if (moved) MoveTab(dragged, target, after);
+            else ActivateTab(tab); // 動いていなければ通常クリック＝アクティブ化
             e.Handled = true;
         };
         chip.LostMouseCapture += (_, _) =>
@@ -681,23 +687,24 @@ public partial class MainWindow : Window
         _dragAdornerChip = null;
     }
 
-    // ドロップ確定：_dragTab を _dropTarget の前/後へ移動（_tabs と TabStripPanel の両方を同期）。
-    private void CommitTabDrop()
+    // ドロップ確定：dragged を target の前/後へ移動（_tabs と TabStripPanel の両方を同期）。
+    // 値は呼び出し側で退避済み（LostMouseCapture でフィールドがクリアされるため引数で受ける）。
+    private void MoveTab(TabContext? dragged, TabContext? target, bool after)
     {
-        if (_dragTab == null || _dropTarget == null || ReferenceEquals(_dropTarget, _dragTab)) return;
-        var from = _tabs.IndexOf(_dragTab);
-        var targetIdx = _tabs.IndexOf(_dropTarget);
+        if (dragged == null || target == null || ReferenceEquals(dragged, target)) return;
+        var from = _tabs.IndexOf(dragged);
+        var targetIdx = _tabs.IndexOf(target);
         if (from < 0 || targetIdx < 0) return;
 
-        var insert = _dropAfter ? targetIdx + 1 : targetIdx;
+        var insert = after ? targetIdx + 1 : targetIdx;
         if (insert > from) insert--;                 // 自分を抜いた分の補正
         insert = Math.Clamp(insert, 0, _tabs.Count - 1);
         if (insert == from) return;
 
         _tabs.RemoveAt(from);
-        _tabs.Insert(insert, _dragTab);
-        TabStripPanel.Children.Remove(_dragTab.Chip);
-        TabStripPanel.Children.Insert(insert, _dragTab.Chip); // チップは先頭から並ぶので index 一致（＋は末尾）
+        _tabs.Insert(insert, dragged);
+        TabStripPanel.Children.Remove(dragged.Chip);
+        TabStripPanel.Children.Insert(insert, dragged.Chip); // チップは先頭から並ぶので index 一致（＋は末尾）
     }
 
     /// <summary>

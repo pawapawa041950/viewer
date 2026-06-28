@@ -8,6 +8,8 @@
 </head>
 <body>
   <div id="stage" class="stage"></div>
+  <!-- 詳細ペインは画像領域を占有する（重ね表示ではない）。左端の resizer でドラッグ幅変更。 -->
+  <div id="overlayResizer" class="overlay-resizer hidden"></div>
   <div id="overlay" class="overlay hidden"></div>
   <div id="hint" class="hint"></div>
   <!-- 表示メニュー（左上・半透明・マウス移動時のみ表示）。元メインウィンドウのメニュー項目 -->
@@ -18,6 +20,8 @@
     <button id="countInc" class="count-btn" title="表示枚数を増やす">&#43;</button>
     <button id="countDec" class="count-btn" title="表示枚数を減らす">&#8722;</button>
   </div>
+  <!-- 詳細ペインの表示ON/OFF（左ボタン群の一番下） -->
+  <button id="detailBtn" class="detail-btn" title="詳細ペインの表示/非表示">&#8505;</button>
   <div id="layoutMenu" class="layout-menu hidden">
     <!-- レイアウトは layout3 固定。レイアウト選択 UI は排除（描画関数のソースは残置）。 -->
     <div class="lm-section">表示枚数</div>

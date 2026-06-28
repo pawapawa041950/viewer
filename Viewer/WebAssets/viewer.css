@@ -10,9 +10,16 @@ html, body {
   font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
 }
 
+/* 画像領域(stage)＋resizer＋詳細ペイン(overlay)を横並びにする。詳細ペイン表示時は
+   stage が縮んで画像領域が狭まる（重ね表示ではない）。浮遊UI(hint/ボタン/メニュー)は
+   absolute なので flex には影響しない。 */
+body { display: flex; flex-direction: row; }
+
 .stage {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -88,6 +95,38 @@ html, body {
 }
 .count-btn:hover { background: rgba(255, 255, 255, 0.4); }
 .count-btn:active { background: rgba(255, 255, 255, 0.55); }
+
+/* 詳細ペイン表示トグル（左ボタン群の一番下・＋/− の下） */
+.detail-btn {
+  position: absolute;
+  top: 168px;  /* レイアウト(14) / ＋(64) / −(116..158) の下 */
+  left: 14px;
+  z-index: 200;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+.detail-btn.show { opacity: 1; pointer-events: auto; }
+.detail-btn:hover { background: rgba(255, 255, 255, 0.4); }
+/* 詳細ペインが開いているときはアクティブ表示（青系ハイライト） */
+.detail-btn.active {
+  background: rgba(120, 170, 255, 0.55);
+  border-color: rgba(160, 200, 255, 0.85);
+}
 
 /* 表示メニュー ボタン（左上・半透明・マウス移動時のみフェード表示） */
 .layout-btn {
@@ -169,23 +208,31 @@ html, body {
   font-size: 16px;
 }
 
-/* 詳細オーバーレイ（仕様 §4.3） */
+/* 詳細ペイン（仕様 §4.3）。画像領域を占有する固定幅パネル（flex 子）。 */
 .overlay {
-  position: absolute;
-  top: 0;
-  right: 0;
+  position: relative;
+  flex: 0 0 auto;
   width: 320px;
   height: 100%;
-  background: rgba(16, 22, 38, 0.92);
+  background: rgba(16, 22, 38, 0.98);
   color: #eee;
   overflow: auto;
   padding: 12px;
   box-sizing: border-box;
   font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
   font-size: 12px;
-  z-index: 100;
 }
 .overlay.hidden { display: none; }
+
+/* 詳細ペインの幅をドラッグで変えるためのつまみ（stage と overlay の間）。 */
+.overlay-resizer {
+  flex: 0 0 6px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.10);
+  cursor: ew-resize;
+}
+.overlay-resizer:hover { background: rgba(120, 170, 255, 0.5); }
+.overlay-resizer.hidden { display: none; }
 .overlay .name { font-weight: bold; margin-bottom: 8px; word-break: break-all; }
 .overlay .row { display: flex; gap: 8px; margin: 3px 0; }
 .overlay .row .k { color: #8aa; min-width: 64px; }

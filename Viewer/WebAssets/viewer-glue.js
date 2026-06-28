@@ -534,18 +534,26 @@
   const countControls = document.getElementById('countControls');
   const layoutBtn = document.getElementById('layoutBtn');
   const layoutMenu = document.getElementById('layoutMenu');
+  const detailBtn = document.getElementById('detailBtn');
   let controlsHideTimer = null;
   function revealControls() {
     if (countControls) countControls.classList.add('show');
     if (layoutBtn) layoutBtn.classList.add('show');
+    if (detailBtn) detailBtn.classList.add('show');
     clearTimeout(controlsHideTimer);
     controlsHideTimer = setTimeout(() => {
       if (layoutMenu && !layoutMenu.classList.contains('hidden')) return; // メニュー展開中は隠さない
       if (countControls) countControls.classList.remove('show');
       if (layoutBtn) layoutBtn.classList.remove('show');
+      if (detailBtn) detailBtn.classList.remove('show');
     }, 2200);
   }
   window.addEventListener('mousemove', revealControls);
+
+  // 詳細ペインの表示ON/OFFボタン。
+  if (detailBtn) {
+    detailBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleOverlay(); revealControls(); });
+  }
 
   // 表示枚数 ±
   if (countControls) {
@@ -676,12 +684,39 @@
 
   // ---- 詳細オーバーレイ（仕様 §4.3。D キーでトグル） ----
   const overlayEl = document.getElementById('overlay');
+  const overlayResizer = document.getElementById('overlayResizer');
   let overlayVisible = false;
   function toggleOverlay() {
     overlayVisible = !overlayVisible;
     overlayEl.classList.toggle('hidden', !overlayVisible);
+    overlayResizer.classList.toggle('hidden', !overlayVisible);
+    if (detailBtn) detailBtn.classList.toggle('active', overlayVisible);
     if (overlayVisible) updateOverlay();
+    // 画像領域の幅が変わるので再レイアウト（レイアウト確定後にもう一度）。
+    reflow(); requestAnimationFrame(reflow);
   }
+
+  // 詳細ペインの幅をドラッグで変更（stage が連動して広狭する）。
+  (function setupOverlayResizer() {
+    let resizing = false, raf = 0;
+    function scheduleReflow() { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; reflow(); }); }
+    overlayResizer.addEventListener('mousedown', (e) => {
+      resizing = true; e.preventDefault();
+      document.body.style.cursor = 'ew-resize';
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!resizing) return;
+      // 詳細ペインは右側。カーソルより右側の幅を割り当てる。
+      const w = Math.max(180, Math.min(window.innerWidth * 0.7, window.innerWidth - e.clientX));
+      overlayEl.style.width = w + 'px';
+      scheduleReflow();
+    });
+    window.addEventListener('mouseup', () => {
+      if (!resizing) return;
+      resizing = false; document.body.style.cursor = '';
+      reflow();
+    });
+  })();
   function refreshOverlayIfVisible() { if (overlayVisible) updateOverlay(); }
   async function updateOverlay() {
     const im = currentImage();

@@ -477,9 +477,14 @@ public partial class MainWindow : Window
 
     private void FocusTab(TabContext tab)
     {
-        // WebView にキーボードフォーカスを移す（ショートカットが効くように）。
-        Dispatcher.BeginInvoke(new Action(() => { if (tab.Closed) return; try { tab.View.Focus(); } catch { } }),
-            DispatcherPriority.Input);
+        // WebView にキーボードフォーカスを移す（ショートカットが効くように）＋ JS 側で
+        // グリッドにフォーカスを移すよう通知（タブ間の貼り付け等が切替直後から効くように）。
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (tab.Closed) return;
+            try { tab.View.Focus(); } catch { }
+            tab.Bridge?.EmitEvent("focus_list", null);
+        }), DispatcherPriority.Input);
     }
 
     private void SwitchTab(int delta)

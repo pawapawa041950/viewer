@@ -109,6 +109,22 @@
     ShortcutDispatch.load().catch(() => {});
   }
 
+  // タブ切替やアプリ復帰でこのペインがフォーカスを得たら、グリッドへフォーカスを移す。
+  // コピー/切り取り/貼り付け等のショートカットは grid の keydown 経由で発火するため、
+  // これが無いとタブ切替直後にキー操作（特にタブ間の貼り付け）が効かない。
+  // 入力欄（アドレスバー等）にフォーカス中は奪わない。
+  window.addEventListener('focus', () => {
+    const ae = document.activeElement;
+    if (!ae || ae === document.body) grid.focus();
+  });
+  // ホストがタブをアクティブ化したときの明示通知でもグリッドにフォーカスする（確実化）。
+  if (window.__TAURI__ && window.__TAURI__.event) {
+    window.__TAURI__.event.listen('focus_list', () => {
+      const ae = document.activeElement;
+      if (!ae || ae === document.body) grid.focus();
+    });
+  }
+
   // 表示設定（アイコンサイズ・ソート）を反映。ファイル名は常に折り返し固定。
   function applyViewSettings(vs, reloadOnSortChange) {
     if (!vs) return;

@@ -1,5 +1,8 @@
 using System.IO;
+using System.Text;
 using SharpCompress.Archives;
+using SharpCompress.Common;
+using SharpCompress.Readers;
 
 namespace Viewer.Backend;
 
@@ -10,6 +13,33 @@ namespace Viewer.Backend;
 /// </summary>
 public static class ArchiveService
 {
+    // ZIP のファイル名エンコーディング自動判定（文字化け対策）。
+    // ・UTF-8 フラグ付きエントリ → UTF-8
+    // ・フラグ無し（レガシー） → 正当な UTF-8 ならそのまま、ダメなら CP932(Shift-JIS)
+    //   とみなす（日本語 Windows 製 ZIP の大半が該当）。
+    private static readonly Encoding ShiftJis;
+    private static readonly Encoding StrictUtf8 = new UTF8Encoding(false, throwOnInvalidBytes: true);
+    private static readonly ReaderOptions ReaderOpts;
+
+    static ArchiveService()
+    {
+        // .NET 8 は既定で CP932 を持たないため、コードページプロバイダを登録する。
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        ShiftJis = Encoding.GetEncoding(932);
+        ReaderOpts = new ReaderOptions
+        {
+            ArchiveEncoding = new ArchiveEncoding { CustomDecoder = DecodeEntryName },
+        };
+    }
+
+    private static string DecodeEntryName(byte[] data, int index, int count, EncodingType type)
+    {
+        if (type == EncodingType.UTF8)
+            return Encoding.UTF8.GetString(data, index, count);
+        try { return StrictUtf8.GetString(data, index, count); }     // 正当な UTF-8 はそのまま
+        catch (DecoderFallbackException) { return ShiftJis.GetString(data, index, count); } // それ以外は Shift-JIS
+    }
+
     /// <summary>書庫内の <paramref name="innerPath"/> 直下のエントリ（フォルダー先頭）。</summary>
     public static List<ArchiveEntry> ListEntries(string archivePath, string innerPath)
     {
@@ -21,7 +51,7 @@ public static class ArchiveService
 
         try
         {
-            using var archive = ArchiveFactory.OpenArchive(archivePath);
+            using var archive = ArchiveFactory.OpenArchive(archivePath, ReaderOpts);
             foreach (var e in archive.Entries)
             {
                 var key = Norm(e.Key ?? "");
@@ -81,7 +111,7 @@ public static class ArchiveService
         var prefix = innerNorm.Length == 0 ? "" : innerNorm + "/";
         try
         {
-            using var archive = ArchiveFactory.OpenArchive(archivePath);
+            using var archive = ArchiveFactory.OpenArchive(archivePath, ReaderOpts);
             string? best = null;
             foreach (var e in archive.Entries)
             {
@@ -108,7 +138,7 @@ public static class ArchiveService
         if (target.Length == 0) return null;
         try
         {
-            using var archive = ArchiveFactory.OpenArchive(archivePath);
+            using var archive = ArchiveFactory.OpenArchive(archivePath, ReaderOpts);
             foreach (var e in archive.Entries)
             {
                 if (e.IsDirectory) continue;

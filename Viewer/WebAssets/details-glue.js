@@ -8,6 +8,23 @@
   const info = document.getElementById('info');
 
   function isImage(path) { return /\.(jpe?g|png|gif|webp|bmp|tiff?)$/i.test(path); }
+  function isArchive(path) { return /\.(zip|7z|rar)$/i.test(path); }
+
+  // 一覧ペインと同じく、フォルダー/圧縮ファイルのサムネイル表示は設定で ON/OFF できる。
+  // 「一覧でサムネイルが出ているフォルダー/書庫」だけ詳細ペインにも出す、という要件のため
+  // ここでもフラグを尊重する（既定は ON。get_view_settings で初期化し、変更通知で追従）。
+  let showFolderThumbs = true;
+  let showArchiveThumbs = true;
+  function applyThumbSettings(vs) {
+    if (!vs) return;
+    if (typeof vs.folder_thumbnails === 'boolean') showFolderThumbs = vs.folder_thumbnails;
+    if (typeof vs.archive_thumbnails === 'boolean') showArchiveThumbs = vs.archive_thumbnails;
+  }
+  invoke('get_view_settings').then(applyThumbSettings).catch(() => {});
+
+  // 選択が短時間で切り替わったとき、古い非同期サムネイル取得が新しい表示を上書きしないよう
+  // 通し番号でガードする。
+  let showSeq = 0;
 
   function fmtSize(bytes) {
     if (bytes == null) return '';
@@ -26,6 +43,7 @@
   }
 
   async function show(paths, archivePath) {
+    const my = ++showSeq;
     if (!paths || paths.length === 0) {
       preview.innerHTML = '';
       info.innerHTML = '<div class="muted">ファイルを選択してください</div>';
@@ -54,12 +72,47 @@
           ? await invoke('get_image_details', { archivePath, innerPath: path })
           : await invoke('get_image_details', { path });
       } catch {}
+      if (my !== showSeq) return;
       renderImage(name, md);
     } else {
       let fi = null;
       try { fi = await invoke('get_file_info', { path }); } catch {}
+      if (my !== showSeq) return;
       renderBasic(name, fi);
+      // フォルダー / 圧縮ファイル（書庫の外で選択されたもの）は、一覧と同じく中の1枚目を
+      // サムネイルとしてプレビュー表示する。書庫の中にいるとき（archivePath あり）は対象外。
+      if (!archivePath) showFolderOrArchiveThumb(my, path, fi);
     }
+  }
+
+  // フォルダー/圧縮ファイルの中の1枚目を取得してプレビューに表示する（一覧の loadThumbHosts 相当）。
+  function showFolderOrArchiveThumb(my, path, fi) {
+    const isDir = fi && fi.is_dir;
+    const arc = !isDir && isArchive(path);
+    if (isDir && !showFolderThumbs) return;
+    if (arc && !showArchiveThumbs) return;
+    if (!isDir && !arc) return;
+
+    if (isDir) {
+      invoke('get_folder_first_image', { path }).then((imgPath) => {
+        if (my !== showSeq || !imgPath) return;
+        setPreviewThumb('https://file.viewer/raw?p=' + encodeURIComponent(imgPath));
+      }).catch(() => {});
+    } else {
+      invoke('get_archive_first_image', { archivePath: path }).then((inner) => {
+        if (my !== showSeq || !inner) return;
+        setPreviewThumb('https://file.viewer/raw?a=' + encodeURIComponent(path) +
+          '&i=' + encodeURIComponent(inner));
+      }).catch(() => {});
+    }
+  }
+
+  function setPreviewThumb(url) {
+    preview.innerHTML = '';
+    const img = document.createElement('img');
+    img.decoding = 'async';
+    img.src = url;
+    preview.appendChild(img);
   }
 
   function renderImage(name, md) {
@@ -568,6 +621,8 @@
     });
     // フォルダーが変わったらタグ一覧を再構築（仕様 §7）。
     window.__TAURI__.event.listen('folder_changed', () => loadTagsForDirectory());
+    // サムネイル表示設定の変更に追従（フォルダー/書庫のサムネイル ON/OFF）。
+    window.__TAURI__.event.listen('view_settings_changed', (e) => applyThumbSettings(e && e.payload));
   }
   // 初期化直後にこのタブのフォルダのタグを取得（folder_changed をリスナー登録前に
   // 取り逃しても、ここで現在フォルダ分を読み込んで整合させる。タブごと詳細インスタンス用）。

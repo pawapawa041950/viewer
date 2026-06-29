@@ -141,8 +141,21 @@
   }
   // 起動時に現在値を取得して適用。
   invoke('get_view_settings').then((vs) => applyViewSettings(vs, false)).catch(() => {});
-  // このタブが最初に開くフォルダ（host がタブ生成時に決定）。空なら空タブのまま。
-  invoke('get_initial_folder').then((p) => { if (p) loadFolder(p); }).catch(() => {});
+  // このタブが最初に開くパス（host がタブ生成時に決定）。空なら空タブのまま。
+  // フォルダー／圧縮ファイルのどちらでも開けるよう resolve_path で判定して分岐する。
+  invoke('get_initial_folder').then((p) => {
+    if (!p) return;
+    invoke('resolve_path', { path: p }).then((r) => {
+      if (!r || r.kind === 'none') { loadFolder(p); return; } // 後方互換: 判定不可ならフォルダー扱い
+      if (r.kind === 'archive') {
+        currentFolder = parentOf(r.path);
+        if (history[history.length - 1] !== currentFolder) history.push(currentFolder);
+        enterArchive(r.path);
+      } else {
+        loadFolder(r.path);
+      }
+    }).catch(() => loadFolder(p));
+  }).catch(() => {});
 
   // ---- アドレスバーのツール（ソート選択 / アイコンサイズ調整） ----
   const sortBtn = document.getElementById('sortBtn');
@@ -618,9 +631,11 @@
     const single = sel.length === 1;
     const inArc = !!currentArchive;
     const isFolder = single && itemEl(sel[0])?.dataset.type === 'folder';
+    const isArchive = single && !!(itemEl(sel[0])?.querySelector('.file-icon.archive') ||
+      itemEl(sel[0])?.querySelector('.archive-thumbnail'));
     return [
       { label: '開く', action: () => openPath(sel[0]), disabled: !single },
-      { label: '新しいタブで開く', action: () => invoke('new_tab_with_folder', { path: sel[0] }), disabled: !isFolder || inArc },
+      { label: '新しいタブで開く', action: () => invoke('new_tab_with_folder', { path: sel[0] }), disabled: (!isFolder && !isArchive) || inArc },
       'sep',
       { label: '切り取り', action: () => clipboardCopy(true), disabled: inArc },
       { label: 'コピー', action: () => clipboardCopy(false), disabled: inArc },

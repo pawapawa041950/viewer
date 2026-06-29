@@ -243,6 +243,10 @@ public partial class MainWindow : Window
     {
         foreach (var h in AllImageHosts()) h.Bridge?.EmitEvent(ev, payload);
     }
+    private void EmitToAllDetails(string ev, object? payload)
+    {
+        foreach (var t in _tabs) t.DetailsBridge?.EmitEvent(ev, payload);
+    }
 
     // 設定ウィンドウからの変更を反映・保存。value は bool/string 混在のため JsonElement で受ける。
     private void ApplySetting(System.Text.Json.JsonElement args)
@@ -298,12 +302,14 @@ public partial class MainWindow : Window
                 _settings.FolderThumbnails = Bool(args, "value");
                 SettingsService.Save(_settings);
                 EmitToAllTabs("view_settings_changed", ViewSettingsPayload()); // フラグ更新
+                EmitToAllDetails("view_settings_changed", ViewSettingsPayload()); // 詳細ペインのサムネ表示にも反映
                 EmitToAllTabs("reload_list_full", null);                       // 全再読込で反映
                 break;
             case "archive_thumbnails":
                 _settings.ArchiveThumbnails = Bool(args, "value");
                 SettingsService.Save(_settings);
                 EmitToAllTabs("view_settings_changed", ViewSettingsPayload());
+                EmitToAllDetails("view_settings_changed", ViewSettingsPayload());
                 EmitToAllTabs("reload_list_full", null);
                 break;
             case "sync_list_selection":
@@ -1093,8 +1099,12 @@ public partial class MainWindow : Window
             bridge.Register("new_tab", args => { _ = NewTabFromActiveAsync(); return (object?)null; });
             bridge.Register("new_tab_with_folder", args =>
             {
+                // フォルダーだけでなく圧縮ファイルも新しいタブで開ける。実際にフォルダー/書庫の
+                // どちらとして開くかは、新タブ側 JS が InitialFolder を resolve_path で判定する。
                 var p = Str(args, "path");
-                if (!string.IsNullOrEmpty(p) && Directory.Exists(p)) _ = CreateTabAsync(p, activate: true);
+                if (!string.IsNullOrEmpty(p) &&
+                    (Directory.Exists(p) || (File.Exists(p) && FileTypes.IsArchive(p))))
+                    _ = CreateTabAsync(p, activate: true);
                 return (object?)null;
             });
             bridge.Register("close_tab", _ => { CloseTab(tab); return (object?)null; });
@@ -1445,10 +1455,13 @@ public partial class MainWindow : Window
         var tvi = FindAncestorTreeViewItem(e.OriginalSource as DependencyObject);
         if (tvi?.Tag is not ShellNode node) return;
         var path = node.FileSystemPath;
-        if (node.IsArchive || string.IsNullOrEmpty(path) || !Directory.Exists(path)) return;
+        // フォルダー、または圧縮ファイルのノードを新しいタブで開く。
+        var ok = !string.IsNullOrEmpty(path) &&
+                 (node.IsArchive ? File.Exists(path) : Directory.Exists(path));
+        if (!ok) return;
 
         e.Handled = true; // 通常の選択／アクティブタブのナビゲートを抑止
-        _ = CreateTabAsync(path, activate: true);
+        _ = CreateTabAsync(path!, activate: true);
     }
 
     // ツリーで右クリック → コンテキストメニュー（「新しいタブで開く」）。フォルダのみ有効。
@@ -1458,11 +1471,12 @@ public partial class MainWindow : Window
         if (tvi?.Tag is not ShellNode node) return; // ノード外なら何もしない
 
         var path = node.FileSystemPath;
-        var isFolder = !node.IsArchive && !string.IsNullOrEmpty(path) && Directory.Exists(path);
+        var canOpen = !string.IsNullOrEmpty(path) &&
+                      (node.IsArchive ? File.Exists(path) : Directory.Exists(path));
 
         var menu = new ContextMenu { PlacementTarget = tvi };
-        var open = new MenuItem { Header = "新しいタブで開く", IsEnabled = isFolder };
-        open.Click += (_, _) => { if (isFolder) _ = CreateTabAsync(path!, activate: true); };
+        var open = new MenuItem { Header = "新しいタブで開く", IsEnabled = canOpen };
+        open.Click += (_, _) => { if (canOpen) _ = CreateTabAsync(path!, activate: true); };
         menu.Items.Add(open);
         menu.IsOpen = true;
         e.Handled = true; // 既定の選択／メニューを抑止

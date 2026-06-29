@@ -114,10 +114,13 @@ const FileList = (function () {
           || (grid.querySelectorAll('.file-item.selected').length === 1
                 ? grid.querySelector('.file-item.selected') : null);
         if (!item) return;
-        if (item.dataset.type === 'folder') {
+        const isArchive = item.querySelector('.file-icon.archive') ||
+          item.querySelector('.archive-thumbnail');
+        if (item.dataset.type === 'folder' || isArchive) {
+          // フォルダー／圧縮ファイルは新しいタブで開く（書庫はタブ側 JS が中身を展開）。
           opts.onOpenFolderNewTab && opts.onOpenFolderNewTab(item.dataset.path);
         } else {
-          openItem(item); // フォルダ以外は通常の開く動作にフォールバック
+          openItem(item); // それ以外は通常の開く動作にフォールバック
         }
       },
       'filelist.delete':         () => {

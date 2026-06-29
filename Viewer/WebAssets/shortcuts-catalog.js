@@ -34,6 +34,7 @@
     { id: "filelist.rename",         category: "ファイル一覧ペイン", name: "名前の変更",             defaultShortcut: "F2",          defaultMouse: "",            defaultGesture: "" },
     { id: "filelist.open",           category: "ファイル一覧ペイン", name: "開く",                   defaultShortcut: "Enter",       defaultMouse: "ダブルクリック", defaultGesture: "" },
     { id: "filelist.go_back",        category: "ファイル一覧ペイン", name: "戻る（履歴）",           defaultShortcut: "Backspace",      defaultMouse: "",            defaultGesture: "" },
+    { id: "filelist.go_forward",     category: "ファイル一覧ペイン", name: "進む（履歴）",           defaultShortcut: "Alt+ArrowRight", defaultMouse: "",            defaultGesture: "" },
     { id: "filelist.go_up",          category: "ファイル一覧ペイン", name: "上のフォルダーへ",       defaultShortcut: "Alt+ArrowUp",    defaultMouse: "",            defaultGesture: "" },
     { id: "filelist.delete",         category: "ファイル一覧ペイン", name: "ゴミ箱へ移動",           defaultShortcut: "Delete",      defaultMouse: "",            defaultGesture: "" },
     { id: "filelist.copy",           category: "ファイル一覧ペイン", name: "コピー",                 defaultShortcut: "Ctrl+C",      defaultMouse: "",            defaultGesture: "" },

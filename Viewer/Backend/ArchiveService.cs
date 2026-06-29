@@ -73,9 +73,12 @@ public static class ArchiveService
     }
 
     /// <summary>書庫内の「1 枚目の画像」の内部パス（'\' 区切り）。名前昇順で先頭。無ければ null。
-    /// サムネイル表示用。</summary>
-    public static string? FirstImageEntry(string archivePath)
+    /// サムネイル表示用。<paramref name="innerPath"/> を指定すると、その内部フォルダー配下
+    /// （任意の深さ）に限定して探す＝書庫内フォルダーのサムネイル用。空＝書庫全体。</summary>
+    public static string? FirstImageEntry(string archivePath, string innerPath = "")
     {
+        var innerNorm = Norm(innerPath);
+        var prefix = innerNorm.Length == 0 ? "" : innerNorm + "/";
         try
         {
             using var archive = ArchiveFactory.OpenArchive(archivePath);
@@ -83,9 +86,10 @@ public static class ArchiveService
             foreach (var e in archive.Entries)
             {
                 if (e.IsDirectory) continue;
-                var key = e.Key ?? "";
+                var key = Norm(e.Key ?? "");
                 if (key.Length == 0 || !FileTypes.IsImage(key)) continue;
-                var win = ToWin(Norm(key));
+                if (prefix.Length > 0 && !key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                var win = ToWin(key);
                 if (best == null || string.Compare(win, best, StringComparison.OrdinalIgnoreCase) < 0)
                     best = win;
             }

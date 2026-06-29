@@ -74,8 +74,8 @@
     getCurrentArchive: () => currentArchive,
     onOpenImage: (path) => openImageAt(path),
     onOpenFolder: (path) => {
-      if (currentArchive) { currentInner = path; loadLocation(); }
-      else { loadFolder(path); invoke('host_navigated', { path }); }
+      if (currentArchive) enterArchiveInner(path);
+      else loadFolder(path);
     },
     onOpenArchive: (path) => { enterArchive(path); },
     onOpenFolderNewTab: (path) => { invoke('new_tab_with_folder', { path }).catch(() => {}); },
@@ -83,7 +83,8 @@
     showToast,
     onRenamed: async () => { await loadLocation(); },
     onDeleted: () => deleteSelected(),
-    onGoBack: () => goBackHistory(), // 戻る（履歴）
+    onGoBack: () => goBack(),        // 戻る（履歴）
+    onGoForward: () => goForward(),  // 進む（履歴）
     onGoUp: () => goUpParent(),      // 上のフォルダーへ（親）
     // ペイン内ドロップ：フォルダー上で離したらそこへ移動（Ctrlでコピー）。書庫内は不可。
     onInternalMove: async (paths, destPath, copy) => {
@@ -147,13 +148,8 @@
     if (!p) return;
     invoke('resolve_path', { path: p }).then((r) => {
       if (!r || r.kind === 'none') { loadFolder(p); return; } // 後方互換: 判定不可ならフォルダー扱い
-      if (r.kind === 'archive') {
-        currentFolder = parentOf(r.path);
-        if (history[history.length - 1] !== currentFolder) history.push(currentFolder);
-        enterArchive(r.path);
-      } else {
-        loadFolder(r.path);
-      }
+      if (r.kind === 'archive') enterArchive(r.path);
+      else loadFolder(r.path);
     }).catch(() => loadFolder(p));
   }).catch(() => {});
 
@@ -246,26 +242,54 @@
     return idx < 0 ? '' : norm.slice(0, idx);
   }
 
-  // ---- ナビゲーション ----
-  let history = [];   // 訪問フォルダー履歴（末尾＝現在）。戻る（履歴）用。
+  // ---- ナビゲーション履歴（ブラウザ型：戻る／進む） ----
+  // 各エントリは「ロケーション」＝ 通常フォルダー or 書庫(＋内部パス)。フォルダーだけでなく
+  // 書庫も第一級の履歴地点として扱うため、戻る/進むが書庫を含む経路を正しくたどれる。
+  // 「上のフォルダーへ」も新しい移動として履歴に積む（Explorer 同様、戻るで子へ戻れる）。
+  // ロケーション形 = { folder: string|null, archive: string|null, inner: string }
+  let navStack = [];   // ロケーションの並び（先頭→末尾＝古い→新しい）
+  let navIdx = -1;     // 現在地のインデックス（-1＝未ナビゲート）
 
-  function loadFolder(path, pushHistory = true) {
+  function sameLoc(a, b) {
+    return !!a && !!b && a.folder === b.folder && a.archive === b.archive && (a.inner || '') === (b.inner || '');
+  }
+  function resetNav() { navStack = []; navIdx = -1; }
+
+  // ロケーションを実際に表示する（履歴は変更しない）。
+  function applyLoc(loc) {
+    currentFolder = loc.folder;
+    currentArchive = loc.archive;
+    currentInner = loc.inner || '';
+    tagFilter = null; // ロケーション切替でタグフィルター解除（仕様 §7）
+    if (!loc.archive && loc.folder) invoke('host_navigated', { path: loc.folder });
+    loadLocation();
+  }
+  // 新しいロケーションへ移動し履歴に積む（前方履歴は破棄）。同じ場所への連続移動は積まない。
+  function pushLoc(loc) {
+    if (navIdx >= 0 && sameLoc(navStack[navIdx], loc)) { applyLoc(loc); return; }
+    navStack = navStack.slice(0, navIdx + 1);
+    navStack.push(loc);
+    navIdx = navStack.length - 1;
+    applyLoc(loc);
+  }
+
+  // 通常フォルダーへ移動（クリック／ツリー／アドレスバー等）。
+  function loadFolder(path) {
     if (!path) return;
-    currentFolder = path;
-    currentArchive = null;
-    currentInner = '';
-    tagFilter = null; // フォルダー切替でタグフィルター解除（仕様 §7）
-    if (pushHistory && history[history.length - 1] !== path) history.push(path);
-    loadLocation();
+    pushLoc({ folder: path, archive: null, inner: '' });
   }
+  // 書庫を開く（中の最上位を表示）。currentFolder は書庫の親フォルダーとして保持。
   function enterArchive(path) {
-    currentArchive = path;   // currentFolder は書庫の親としてそのまま保持
-    currentInner = '';
-    tagFilter = null;
-    loadLocation();
+    if (!path) return;
+    pushLoc({ folder: parentOf(path), archive: path, inner: '' });
   }
+  // 書庫内のフォルダーへ移動。
+  function enterArchiveInner(inner) {
+    pushLoc({ folder: currentFolder, archive: currentArchive, inner: inner || '' });
+  }
+
   // 仮想フォルダーの子フォルダー（ドライブ等）を一覧に表示。実フォルダーではないので
-  // currentFolder は持たない（ダブルクリックで各フォルダーへ通常ナビゲートする）。
+  // currentFolder は持たない（ダブルクリックで各フォルダーへ通常ナビゲートする）。履歴対象外。
   function showFolders(folders, title) {
     loadSeq++;                 // 進行中の get_files ロードを無効化
     hideSpinner();             // list_loading で出していたスピナーを消す
@@ -281,31 +305,30 @@
     FileList.clearSelection();
     invoke('selection_changed', { paths: [], archivePath: null });
   }
-  // 戻る（履歴）：直前に居たフォルダーへ。書庫内は1階層戻る／書庫から出る（元アプリ準拠）。
-  function goBackHistory() {
-    if (currentArchive) {
-      if (currentInner) { currentInner = parentInner(currentInner); loadLocation(); }
-      else { currentArchive = null; currentInner = ''; loadLocation(); }
-      return;
-    }
-    if (history.length > 1) {
-      history.pop();                              // 現在地を捨てる
-      const prev = history[history.length - 1];
-      loadFolder(prev, false);                    // 履歴に積まずに戻る
-      invoke('host_navigated', { path: prev });
-    }
+
+  // 戻る：履歴を1つ前へ。書庫の地点もそのままたどれる。
+  function goBack() {
+    if (navIdx <= 0) return;
+    navIdx--;
+    applyLoc(navStack[navIdx]);
+  }
+  // 進む：履歴を1つ先へ。
+  function goForward() {
+    if (navIdx >= navStack.length - 1) return;
+    navIdx++;
+    applyLoc(navStack[navIdx]);
   }
 
-  // 上のフォルダーへ（親）。書庫内は1階層上／書庫から出る。
+  // 上のフォルダーへ（親）。書庫内は1階層上／書庫から出る。いずれも新しい移動として履歴に積む。
   function goUpParent() {
     if (currentArchive) {
-      if (currentInner) { currentInner = parentInner(currentInner); loadLocation(); }
-      else { currentArchive = null; currentInner = ''; loadLocation(); }
+      if (currentInner) enterArchiveInner(parentInner(currentInner));
+      else loadFolder(currentFolder); // 書庫を出て親フォルダーへ
       return;
     }
     if (!currentFolder) return;
     const parent = parentOf(currentFolder);
-    if (parent) { loadFolder(parent); invoke('host_navigated', { path: parent }); }
+    if (parent) loadFolder(parent);
   }
 
   // ---- ロケーション読み込み（通常フォルダー / 書庫内） ----
@@ -347,6 +370,7 @@
     const imageItems = [];
     const archiveItems = [];
     const folderItems = [];
+    const innerFolderItems = []; // 書庫内のフォルダー（中の1枚目をサムネイル化）
     for (const entry of entries) {
       // 書庫内エントリには archive コンテキストを付与（URL生成・openに使う）。
       const file = inArchive
@@ -358,6 +382,7 @@
       if (file.is_image) imageItems.push({ item, file });
       else if (file.is_archive && !inArchive && showArchiveThumbs) archiveItems.push({ item, file });
       else if (file.is_dir && !inArchive && showFolderThumbs) folderItems.push({ item, file });
+      else if (file.is_dir && inArchive && showFolderThumbs) innerFolderItems.push({ item, file });
     }
     FileList.clearSelection();
     invoke('selection_changed', { paths: [], archivePath: currentArchive });
@@ -370,6 +395,10 @@
       (file, inner) => 'https://file.viewer/raw?a=' + encodeURIComponent(file.path) + '&i=' + encodeURIComponent(inner));
     loadThumbHosts(folderItems, myLoad, 'get_folder_first_image',
       (file, imgPath) => 'https://file.viewer/raw?p=' + encodeURIComponent(imgPath));
+    // 書庫内フォルダー：その内部フォルダー配下の1枚目を書庫から取得してサムネイル化。
+    loadThumbHosts(innerFolderItems, myLoad, 'get_archive_first_image',
+      (file, inner) => 'https://file.viewer/raw?a=' + encodeURIComponent(archiveAtLoad) + '&i=' + encodeURIComponent(inner),
+      (file) => ({ archivePath: archiveAtLoad, innerPath: file.path }));
   }
 
   // フォルダー監視(fs_changed)/F5 での差分更新（reconcile）。全消去→全再生成だとちらつき＆
@@ -440,7 +469,8 @@
 
   // 📦圧縮ファイル / 📁フォルダーのサムネイル（中の1枚目）をビューポート優先で読み込む（仕様 §3/§5）。
   // command で1枚目を取得（ホスト側は背景実行＝ブロックしない）、urlFn で配信URLを作って .thumb-img に設定。
-  function loadThumbHosts(items, myLoad, command, urlFn) {
+  // argsFn を渡すと invoke 引数を差し替えできる（書庫内フォルダー＝archivePath+innerPath を渡す）。
+  function loadThumbHosts(items, myLoad, command, urlFn, argsFn) {
     if (items.length === 0) return;
     const map = new Map(items.map((x) => [x.item, x.file]));
     const observer = new IntersectionObserver((entries) => {
@@ -450,7 +480,8 @@
         observer.unobserve(item);
         const file = map.get(item);
         if (!file) continue;
-        invoke(command, { path: file.path, archivePath: file.path }).then((res) => {
+        const callArgs = argsFn ? argsFn(file) : { path: file.path, archivePath: file.path };
+        invoke(command, callArgs).then((res) => {
           if (myLoad !== loadSeq || !res || !document.body.contains(item)) return;
           const img = item.querySelector('.thumb-img');
           if (!img) return;
@@ -551,8 +582,8 @@
     if (el.dataset.isImage === 'true') {
       openImageAt(path);
     } else if (el.dataset.type === 'folder') {
-      if (currentArchive) { currentInner = path; loadLocation(); }
-      else { loadFolder(path); invoke('host_navigated', { path }); }
+      if (currentArchive) enterArchiveInner(path);
+      else loadFolder(path);
     } else if (el.querySelector('.file-icon.archive')) {
       enterArchive(path);
     } else if (!currentArchive) {
@@ -680,15 +711,16 @@
 
   // ナビゲーションの補助ハンドラ（元アプリ準拠）。grid のキーダウン（file-list.js）が
   // 既に処理した場合は defaultPrevented で二重発火を防ぐ。grid が空 / 非フォーカスでも
-  // 戻る・上が効くよう window で受ける。入力中は無視。
-  //   Backspace / Alt+← : 戻る（履歴） ／ Alt+↑ : 上のフォルダーへ
+  // 戻る・進む・上が効くよう window で受ける。入力中は無視。
+  //   Backspace / Alt+← : 戻る（履歴） ／ Alt+→ : 進む（履歴） ／ Alt+↑ : 上のフォルダーへ
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented) return;
     if (e.target && e.target.tagName === 'INPUT') return;
     if (e.key === 'F5') { e.preventDefault(); if (currentArchive) loadLocation(); else if (currentFolder) reconcile(); return; } // 更新（差分）
-    if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); goBackHistory(); }
+    if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); goBack(); }
+    else if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); goForward(); }
     else if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); goUpParent(); }
-    else if (!e.altKey && !e.ctrlKey && !e.shiftKey && e.key === 'Backspace') { e.preventDefault(); goBackHistory(); }
+    else if (!e.altKey && !e.ctrlKey && !e.shiftKey && e.key === 'Backspace') { e.preventDefault(); goBack(); }
   });
   grid.addEventListener('scroll', hideMenu, true);
 
@@ -703,14 +735,8 @@
     if (!p) { restoreHeaderPath(); return; }
     invoke('resolve_path', { path: p }).then((r) => {
       if (!r || r.kind === 'none') { showToast('パスが見つかりません: ' + p); restoreHeaderPath(); return; }
-      if (r.kind === 'folder') {
-        loadFolder(r.path);
-        invoke('host_navigated', { path: r.path });
-      } else if (r.kind === 'archive') {
-        currentFolder = parentOf(r.path);
-        if (history[history.length - 1] !== currentFolder) history.push(currentFolder);
-        enterArchive(r.path);
-      }
+      if (r.kind === 'folder') loadFolder(r.path);
+      else if (r.kind === 'archive') enterArchive(r.path);
     }).catch(() => { showToast('パスを開けませんでした'); restoreHeaderPath(); });
   });
   // フォーカス時に全選択（パスを差し替えやすく）。
@@ -731,10 +757,7 @@
     // ツリーで圧縮ファイルを選択 → 一覧に中身を展開（親フォルダーを currentFolder として保持）。
     window.__TAURI__.event.listen('navigate_archive', (e) => {
       const p = e && e.payload && e.payload.path;
-      if (!p) return;
-      currentFolder = parentOf(p);
-      if (history[history.length - 1] !== currentFolder) history.push(currentFolder);
-      enterArchive(p);
+      if (p) enterArchive(p);
     });
     // 仮想フォルダー（PC/ホーム/ネットワーク等）選択時：子フォルダー（ドライブ等）を一覧表示。
     window.__TAURI__.event.listen('show_folders', (e) => {
@@ -756,7 +779,7 @@
     window.__TAURI__.event.listen('tab_make_empty', () => {
       loadSeq++;
       hideSpinner();
-      currentFolder = null; currentArchive = null; currentInner = ''; tagFilter = null; history = [];
+      currentFolder = null; currentArchive = null; currentInner = ''; tagFilter = null; resetNav();
       grid.innerHTML = '';
       headerPath.value = '';
       invoke('set_tab_title', { title: '' }).catch(() => {});

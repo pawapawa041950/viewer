@@ -105,8 +105,9 @@ const FileList = (function () {
         const items = Array.from(grid.querySelectorAll('.file-item.selected'));
         if (items.length === 1) openItem(items[0]);
       },
-      'filelist.go_back': () => { opts.onGoBack && opts.onGoBack(); },   // 履歴で戻る
-      'filelist.go_up':   () => { opts.onGoUp && opts.onGoUp(); },       // 親フォルダーへ
+      'filelist.go_back': () => { opts.onGoBack && opts.onGoBack(); },         // 履歴で戻る
+      'filelist.go_forward': () => { opts.onGoForward && opts.onGoForward(); }, // 履歴で進む
+      'filelist.go_up':   () => { opts.onGoUp && opts.onGoUp(); },             // 親フォルダーへ
       'filelist.open_new_tab': () => {
         // 対象＝ダブルクリックした項目（マウス）／フォーカス・単一選択の項目（キーボード）。
         const item = dblTargetItem

@@ -925,10 +925,12 @@ public partial class MainWindow : Window
         bridge.Register("get_archive_files", args =>
             (object?)ArchiveService.ListEntries(Str(args, "archivePath"), Str(args, "innerPath")));
         // 書庫サムネイル用：中の1枚目の画像の内部パスを返す（書庫を開くので背景で実行）。
+        // innerPath を渡すと、その内部フォルダー配下に限定（書庫内フォルダーのサムネイル用）。
         bridge.Register("get_archive_first_image", async args =>
         {
             var ap = Str(args, "archivePath");
-            return await Task.Run<object?>(() => ArchiveService.FirstImageEntry(ap));
+            var inner = Str(args, "innerPath");
+            return await Task.Run<object?>(() => ArchiveService.FirstImageEntry(ap, inner));
         });
         // フォルダーサムネイル用：直下の1枚目の画像のフルパスを返す（列挙は背景で実行）。
         bridge.Register("get_folder_first_image", async args =>

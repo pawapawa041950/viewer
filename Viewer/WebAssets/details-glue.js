@@ -74,15 +74,30 @@
       } catch {}
       if (my !== showSeq) return;
       renderImage(name, md);
+    } else if (archivePath) {
+      // 書庫の中の項目（フォルダー / 非画像ファイル）。ディスク情報は取れないので名前のみ表示し、
+      // フォルダーなら一覧と同じく内部フォルダー配下の1枚目をサムネイル表示する。
+      renderBasic(name, null);
+      if (showFolderThumbs) showArchiveInnerThumb(my, archivePath, path);
     } else {
       let fi = null;
       try { fi = await invoke('get_file_info', { path }); } catch {}
       if (my !== showSeq) return;
       renderBasic(name, fi);
       // フォルダー / 圧縮ファイル（書庫の外で選択されたもの）は、一覧と同じく中の1枚目を
-      // サムネイルとしてプレビュー表示する。書庫の中にいるとき（archivePath あり）は対象外。
-      if (!archivePath) showFolderOrArchiveThumb(my, path, fi);
+      // サムネイルとしてプレビュー表示する。
+      showFolderOrArchiveThumb(my, path, fi);
     }
+  }
+
+  // 書庫内フォルダーのサムネイル：その内部フォルダー配下の1枚目を書庫から取得して表示。
+  // 選択が非画像ファイルだった場合は該当画像が無く null が返るだけ（サムネイルなし）。
+  function showArchiveInnerThumb(my, archivePath, innerPath) {
+    invoke('get_archive_first_image', { archivePath, innerPath }).then((inner) => {
+      if (my !== showSeq || !inner) return;
+      setPreviewThumb('https://file.viewer/raw?a=' + encodeURIComponent(archivePath) +
+        '&i=' + encodeURIComponent(inner));
+    }).catch(() => {});
   }
 
   // フォルダー/圧縮ファイルの中の1枚目を取得してプレビューに表示する（一覧の loadThumbHosts 相当）。

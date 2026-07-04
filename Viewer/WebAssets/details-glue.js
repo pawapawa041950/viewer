@@ -152,6 +152,16 @@
           parts.push('</div>');
         }
       }
+
+      // 生成AIとして解釈できなかったメタデータ (EXIF の撮影機材情報や PNG コメント等)。
+      // C# 側 (AiImageMetadataService.OtherMetadata) が表示用に切り詰め済みの値を渡してくる。
+      const om = md.other_metadata || {};
+      const omKeys = Object.keys(om);
+      if (omKeys.length) {
+        parts.push('<div class="section">メタデータ</div><div class="grid">');
+        for (const k of omKeys) parts.push(cell(k, om[k]));
+        parts.push('</div>');
+      }
     }
     info.innerHTML = parts.join('');
   }

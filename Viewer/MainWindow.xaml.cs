@@ -43,6 +43,7 @@ public partial class MainWindow : Window
         public FileSystemWatcher? Watcher;
         public DispatcherTimer? FsDebounce; // 変更通知のデバウンス（このタブ専用・初回に生成）
         public string WatchedFolder = "";
+        public DispatcherTimer? Resuspend;  // 裏タブを変更通知で一時復帰させた後の再サスペンド用
         public bool Suspended;               // 非アクティブ時に CoreWebView2 をサスペンド中か
         public bool Closed;                  // 破棄済み（以後の遅延コールバックを無効化）
     }
@@ -152,7 +153,15 @@ public partial class MainWindow : Window
         SettingsService.Save(_settings);
 
         // タブの監視を停止（残留ハンドル防止）。
-        foreach (var t in _tabs) { t.Watcher?.Dispose(); t.FsDebounce?.Stop(); }
+        foreach (var t in _tabs) { t.Watcher?.Dispose(); t.FsDebounce?.Stop(); t.Resuspend?.Stop(); }
+
+        // 画像ウィンドウ（単一/タブ別・裏タブ分も含む）をメインウィンドウに追随して閉じる。
+        // ShutdownMode 既定（OnLastWindowClose）のため、残すとアプリが終了しない。
+        // Close() 経由なので各ウィンドウの位置保存（SaveImageWindowBounds）は従来どおり動く。
+        foreach (var h in AllImageHosts().ToList())
+        {
+            try { h.Window.Close(); } catch { /* 破棄済みは無視 */ }
+        }
     }
 
     // ---- メニュー（ファイル/ツール/ヘルプ）----
@@ -455,7 +464,7 @@ public partial class MainWindow : Window
             t.View.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             t.DetailsView.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             StyleChip(t, on);
-            if (on) ResumeTab(t); else SuspendTab(t);
+            if (on) { t.Resuspend?.Stop(); ResumeTab(t); } else SuspendTab(t);
         }
         // ツリー選択だけアクティブタブに追従（詳細はタブ自身が状態を保持するので再取得・再送不要）。
         if (tab.Bridge != null && _settings.SyncTreeSelection && !string.IsNullOrEmpty(tab.CurrentFolder))
@@ -479,6 +488,24 @@ public partial class MainWindow : Window
         t.Suspended = false;
         try { t.View.CoreWebView2?.Resume(); } catch { }
         try { t.DetailsView.CoreWebView2?.Resume(); } catch { }
+    }
+
+    // フォルダー変更で一時復帰させた裏タブを、変更が収まってから再サスペンドする。
+    // 変更が続く間はタイマーを延長（＝生成中のフォルダーは追従し続ける）。
+    private void ScheduleResuspend(TabContext t)
+    {
+        if (t.Resuspend == null)
+        {
+            t.Resuspend = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+            t.Resuspend.Tick += (_, _) =>
+            {
+                t.Resuspend?.Stop();
+                if (t.Closed || ReferenceEquals(t, _activeTab)) return;
+                SuspendTab(t);
+            };
+        }
+        t.Resuspend.Stop();
+        t.Resuspend.Start();
     }
 
     private void FocusTab(TabContext tab)
@@ -524,6 +551,7 @@ public partial class MainWindow : Window
         tab.Watcher?.Dispose();
         tab.Watcher = null;
         if (tab.FsDebounce != null) { tab.FsDebounce.Stop(); tab.FsDebounce = null; }
+        if (tab.Resuspend != null) { tab.Resuspend.Stop(); tab.Resuspend = null; }
         TabStripPanel.Children.Remove(tab.Chip);
         TabContentHost.Children.Remove(tab.View);
         DetailsHost.Children.Remove(tab.DetailsView);
@@ -1675,6 +1703,9 @@ public partial class MainWindow : Window
                 {
                     tab.FsDebounce?.Stop();
                     if (tab.Closed) return;
+                    // 裏タブはサスペンド中で JS（差分更新→画像ウィンドウへの通知）が動かない。
+                    // 変更があったときだけ一時復帰させ、変更が落ち着いたら再サスペンドする。
+                    if (!ReferenceEquals(tab, _activeTab)) { ResumeTab(tab); ScheduleResuspend(tab); }
                     tab.Bridge?.EmitEvent("fs_changed", new { path = tab.WatchedFolder });
                 };
             }

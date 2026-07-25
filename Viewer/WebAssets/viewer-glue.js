@@ -639,6 +639,10 @@
     }).catch(() => {});
   }
   function copyCurrent() {
+    // 詳細ペイン等でテキストを選択中は、ファイルではなく選択テキストをコピーする
+    // （viewer.copy が Ctrl+C を奪い既定コピーが効かないため）。
+    const sel = window.getSelection();
+    if (sel && sel.toString()) { document.execCommand('copy'); return; }
     const im = currentImage();
     if (!im || im.archive_path) return;
     invoke('copy_files_to_clipboard', { paths: [im.path], cut: false }).catch(() => {});

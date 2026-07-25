@@ -497,8 +497,40 @@
     const D = window.ShortcutDispatch;
     if (D && D.isLoaded() && D.dispatchGesture('画像ウィンドウ', str)) gJustPerformed = true;
   });
-  // ジェスチャー直後のコンテキストメニューを抑止。
-  window.addEventListener('contextmenu', (e) => { if (gJustPerformed) { e.preventDefault(); gJustPerformed = false; } });
+  // ---- 画像上の右クリックメニュー（表示・項目定義とも ctx-menu.js と共用・仕様 §2.4） ----
+  // 右ドラッグ＝ジェスチャーと共存：ジェスチャー成立直後の contextmenu では出さない。
+  function imageName(im) { return im.name || ((im.inner_path || im.path || '').split(/[\\/]/).pop()); }
+  // ファイル一覧ペインと同一の項目構成（単一選択相当）。ビューワーで成立しない操作
+  // （開く=表示済み・新しいタブ・名前の変更・新しいフォルダー）は actions に渡さず無効表示。
+  function imageMenu(im) {
+    const inArc = !!im.archive_path;
+    const path = im.path;
+    const dir = inArc ? null : (path || '').replace(/[\\/][^\\/]*$/, '');
+    return CtxMenu.fileMenuItems({
+      single: true, inArc, isFolder: false, isArchive: false,
+      actions: {
+        cut: () => invoke('copy_files_to_clipboard', { paths: [path], cut: true }).catch(() => {}),
+        copy: () => invoke('copy_files_to_clipboard', { paths: [path], cut: false }).catch(() => {}),
+        paste: () => invoke('paste_from_clipboard', { destination: dir }).catch(() => {}),
+        remove: () => deleteImage(im),
+        showInExplorer: () => invoke('open_in_explorer', { path }).catch(() => {}),
+        openDefault: () => invoke('open_with_default_app', { path }).catch(() => {}),
+        copyFullPath: () => invoke('copy_text_to_clipboard', { text: (path || '').replace(/\//g, '\\') }).catch(() => {}),
+        copyName: () => invoke('copy_text_to_clipboard', { text: imageName(im) }).catch(() => {}),
+        touch: () => invoke('touch_file', { path }).catch(() => {}),
+        shellMenu: () => invoke('show_context_menu', { paths: [path] }).catch(() => {}),
+      },
+    });
+  }
+  window.addEventListener('contextmenu', (e) => {
+    if (gJustPerformed) { e.preventDefault(); gJustPerformed = false; return; }
+    const cellHit = e.target.closest ? e.target.closest('.cell') : null;
+    if (!cellHit) { CtxMenu.hide(); return; } // 詳細ペイン・黒地などは対象外
+    e.preventDefault();
+    const hit = currentCells.find((c) => c.cell === cellHit);
+    if (!hit || hit.marker || !hit.im) { CtxMenu.hide(); return; } // 末尾マーカー等
+    CtxMenu.show(e.clientX, e.clientY, imageMenu(hit.im));
+  });
 
   // ---- フルスクリーン ----
   function toggleFullscreen() {
@@ -629,11 +661,15 @@
         layoutMenu.classList.add('hidden');
     });
   }
-  function deleteCurrent() {
-    const im = currentImage();
+  function deleteCurrent() { deleteImage(currentImage()); }
+  function deleteImage(im) {
     if (!im || im.archive_path) return; // 書庫内は削除しない
     invoke('move_to_trash', { paths: [im.path] }).then(() => {
-      state.images.splice(state.index, 1);
+      const i = state.images.indexOf(im);
+      if (i >= 0) {
+        state.images.splice(i, 1);
+        if (state.index > i) state.index--; // 現在位置より前が消えたらずらす
+      }
       if (state.index > state.images.length) state.index = state.images.length;
       resetZoom(); render();
     }).catch(() => {});
@@ -674,6 +710,7 @@
   }
 
   window.addEventListener('keydown', (e) => {
+    // （メニュー表示中の Escape は ctx-menu.js が capture で先取りして閉じる）
     const D = window.ShortcutDispatch;
     if (D && D.dispatchKey(CAT, e)) { e.preventDefault(); return; }
     // カタログ外の補助キー（詳細ペイン開閉はカタログ viewer.toggle_overlay で扱う）

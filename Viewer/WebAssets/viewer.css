@@ -245,5 +245,7 @@ body { display: flex; flex-direction: row; }
 .overlay .prompt { white-space: pre-wrap; word-break: break-word; background: #0b1322; border-radius: 4px; padding: 6px; line-height: 1.4; }
 .overlay .prompt.neg { color: #e6a9a9; }
 .overlay .grid { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
+
+/* 画像上の右クリックメニューの見た目は ctx-menu.css（共用）を参照。 */
 .overlay .grid .pk { color: #8aa; }
 .overlay .grid .pv { color: #eee; word-break: break-all; }

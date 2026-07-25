@@ -633,30 +633,7 @@
     } catch (e) { showToast('更新に失敗しました: ' + e); }
   }
 
-  // ---- コンテキストメニュー（仕様 §2.4） ----
-  let menuEl = null;
-  function hideMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
-  function showMenu(x, y, items) {
-    hideMenu();
-    menuEl = document.createElement('div');
-    menuEl.className = 'ctx-menu';
-    for (const it of items) {
-      if (it === 'sep') { const s = document.createElement('div'); s.className = 'sep'; menuEl.appendChild(s); continue; }
-      const d = document.createElement('div');
-      d.className = 'it' + (it.disabled ? ' disabled' : '');
-      d.textContent = it.label;
-      if (!it.disabled) d.addEventListener('click', () => { hideMenu(); it.action(); });
-      menuEl.appendChild(d);
-    }
-    document.body.appendChild(menuEl);
-    const r = menuEl.getBoundingClientRect();
-    let nx = x, ny = y;
-    if (x + r.width > window.innerWidth) nx = window.innerWidth - r.width - 4;
-    if (y + r.height > window.innerHeight) ny = window.innerHeight - r.height - 4;
-    menuEl.style.left = Math.max(0, nx) + 'px';
-    menuEl.style.top = Math.max(0, ny) + 'px';
-  }
-
+  // ---- コンテキストメニュー（仕様 §2.4。表示・項目定義とも ctx-menu.js と共用） ----
   function itemMenu() {
     const sel = FileList.getSelectedPaths();
     const single = sel.length === 1;
@@ -664,27 +641,25 @@
     const isFolder = single && itemEl(sel[0])?.dataset.type === 'folder';
     const isArchive = single && !!(itemEl(sel[0])?.querySelector('.file-icon.archive') ||
       itemEl(sel[0])?.querySelector('.archive-thumbnail'));
-    return [
-      { label: '開く', action: () => openPath(sel[0]), disabled: !single },
-      { label: '新しいタブで開く', action: () => invoke('new_tab_with_folder', { path: sel[0] }), disabled: (!isFolder && !isArchive) || inArc },
-      'sep',
-      { label: '切り取り', action: () => clipboardCopy(true), disabled: inArc },
-      { label: 'コピー', action: () => clipboardCopy(false), disabled: inArc },
-      { label: '貼り付け', action: () => clipboardPaste(), disabled: inArc },
-      { label: '削除', action: () => deleteSelected(), disabled: inArc },
-      { label: '名前の変更', action: () => FileList.startInlineRename(), disabled: !single || inArc },
-      'sep',
-      { label: 'エクスプローラーで表示', action: () => invoke('open_in_explorer', { path: sel[0] }), disabled: !single || inArc },
-      { label: '既定のアプリで開く', action: () => invoke('open_with_default_app', { path: sel[0] }), disabled: !single || inArc },
-      { label: 'フルパスをコピー', action: () => copyText(sel.join('\n').replace(/\//g, '\\')), disabled: inArc },
-      { label: 'ファイル名をコピー', action: () => copyText(sel.map(baseName).join('\n')) },
-      'sep',
-      { label: '更新日時を現在に (Touch)', action: () => touchSelected(), disabled: inArc },
-      { label: '新しいフォルダー', action: () => newFolder(), disabled: inArc },
-      'sep',
-      // 元 viewer の「一般メニュー」= Explorer のフルシェルメニュー（仕様 §2.3）。
-      { label: '一般メニュー', action: () => invoke('show_context_menu', { paths: sel }), disabled: inArc },
-    ];
+    return CtxMenu.fileMenuItems({
+      single, inArc, isFolder, isArchive,
+      actions: {
+        open: () => openPath(sel[0]),
+        openNewTab: () => invoke('new_tab_with_folder', { path: sel[0] }),
+        cut: () => clipboardCopy(true),
+        copy: () => clipboardCopy(false),
+        paste: () => clipboardPaste(),
+        remove: () => deleteSelected(),
+        rename: () => FileList.startInlineRename(),
+        showInExplorer: () => invoke('open_in_explorer', { path: sel[0] }),
+        openDefault: () => invoke('open_with_default_app', { path: sel[0] }),
+        copyFullPath: () => copyText(sel.join('\n').replace(/\//g, '\\')),
+        copyName: () => copyText(sel.map(baseName).join('\n')),
+        touch: () => touchSelected(),
+        newFolder: () => newFolder(),
+        shellMenu: () => invoke('show_context_menu', { paths: sel }),
+      },
+    });
   }
   function emptyMenu() {
     const inArc = !!currentArchive;
@@ -699,15 +674,12 @@
     const item = e.target.closest('.file-item');
     if (item) {
       if (!FileList.isSelected(item.dataset.path)) FileList.setSelection([item.dataset.path]);
-      showMenu(e.clientX, e.clientY, itemMenu());
+      CtxMenu.show(e.clientX, e.clientY, itemMenu());
     } else {
       FileList.clearSelection();
-      showMenu(e.clientX, e.clientY, emptyMenu());
+      CtxMenu.show(e.clientX, e.clientY, emptyMenu());
     }
   });
-  window.addEventListener('click', hideMenu);
-  window.addEventListener('blur', hideMenu);
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
 
   // ナビゲーションの補助ハンドラ（元アプリ準拠）。grid のキーダウン（file-list.js）が
   // 既に処理した場合は defaultPrevented で二重発火を防ぐ。grid が空 / 非フォーカスでも
@@ -722,7 +694,6 @@
     else if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); goUpParent(); }
     else if (!e.altKey && !e.ctrlKey && !e.shiftKey && e.key === 'Backspace') { e.preventDefault(); goBack(); }
   });
-  grid.addEventListener('scroll', hideMenu, true);
 
   // ---- アドレスバー手入力（パスを入力して Enter で開く） ----
   // 正しいフォルダー → そのフォルダーへ。正しい圧縮ファイル → 書庫として開く。

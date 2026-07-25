@@ -1305,6 +1305,16 @@ public partial class MainWindow : Window
         // viewer ページが起動完了時に呼ぶ。初期の画像リスト＋インデックスを返す。
         bridge.Register("viewer_ready", _ => host.PendingPayload);
 
+        // シェルコンテキストメニュー（「一般メニュー」）の親を画像ウィンドウにする
+        // （RegisterCommands のメイン Hwnd 版を上書き。メニューのメッセージ転送と
+        //  閉じたあとのフォーカスを画像ウィンドウ側に保つため）。
+        bridge.Register("show_context_menu", args =>
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(host.Window).Handle;
+            ShellContextMenu.Show(StrArray(args, "paths"), hwnd);
+            return (object?)null;
+        });
+
         // 画像のファイル情報（詳細オーバーレイ用。メタデータ本実装は §6 で後続）。
         bridge.Register("get_file_info", args => (object?)ListingService.GetFileInfo(Str(args, "path")));
 

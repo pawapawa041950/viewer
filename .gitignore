@@ -29,6 +29,7 @@ packages/
 
 # Claude Code local state (machine-specific; contains username/local paths/permissions)
 .claude/
+CLAUDE.md
 
 # Icon design scratch (mockups; generator script + final app.ico are kept/tracked)
 design/candidates/

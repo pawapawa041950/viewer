@@ -184,21 +184,7 @@ body.name-wrap .file-name {
   -webkit-box-orient: vertical;
 }
 
-.ctx-menu {
-  position: fixed;
-  z-index: 10000;
-  background: #faf9f5;
-  border: 1px solid #e0dcd0;
-  border-radius: 4px;
-  padding: 4px 0;
-  min-width: 170px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-  font-size: 13px;
-}
-.ctx-menu .it { padding: 5px 18px; white-space: nowrap; color: #1a1a1a; cursor: default; }
-.ctx-menu .it:hover { background: var(--hover); }
-.ctx-menu .it.disabled { color: #aaa; pointer-events: none; }
-.ctx-menu .sep { height: 1px; background: #e0e0e0; margin: 4px 0; }
+/* コンテキストメニューの見た目は ctx-menu.css（共用）を参照。 */
 
 #toast {
   position: fixed;

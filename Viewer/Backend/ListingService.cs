@@ -90,6 +90,7 @@ public static class ListingService
                     IsDir = false,
                     IsImage = FileTypes.IsImage(e.Name),
                     IsArchive = FileTypes.IsArchive(e.Name),
+                    IsVideo = FileTypes.IsVideo(e.Name),
                     ModifiedAt = mtime,
                 });
             }
@@ -111,7 +112,7 @@ public static class ListingService
         return folders;
     }
 
-    /// <summary>フォルダー直下の「1 枚目の画像」のフルパス（名前昇順で先頭）。無ければ null。
+    /// <summary>フォルダー直下の「1 枚目の画像・動画」のフルパス（名前昇順で先頭）。無ければ null。
     /// サムネイル表示用。隠し/ドット始まりは除外（一覧と同じ ShouldSkip）。</summary>
     public static string? FirstImageEntry(string folder)
     {
@@ -121,7 +122,7 @@ public static class ListingService
             string? bestPath = null, bestName = null;
             foreach (var f in new DirectoryInfo(folder).EnumerateFiles())
             {
-                if (ShouldSkip(f) || !FileTypes.IsImage(f.Name)) continue;
+                if (ShouldSkip(f) || !(FileTypes.IsImage(f.Name) || FileTypes.IsVideo(f.Name))) continue;
                 if (bestName == null || string.Compare(f.Name, bestName, StringComparison.OrdinalIgnoreCase) < 0)
                 {
                     bestName = f.Name;

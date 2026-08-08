@@ -164,6 +164,26 @@ html, body {
 }
 .thumb-host.has-thumb .thumb-img { display: block; }
 
+/* 動画バッジ（再生ボタン風）。サムネイル無し=中央 / 有り=左上 は thumb-badge の共通則に従う */
+.thumb-badge.video-badge {
+  width: 1.05em;
+  height: 1.05em;
+  border-radius: 50%;
+  background: rgba(28, 32, 42, 0.75);
+  border: 0.05em solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.thumb-badge.video-badge::before {
+  content: '▶';
+  color: #fff;
+  font-size: 0.45em;
+  line-height: 1;
+  margin-left: 0.12em; /* 三角形の光学的な中央寄せ */
+}
+
 /* 既定（固定）: 1行省略表示 */
 .file-name {
   margin-top: 4px;

@@ -33,7 +33,17 @@ public static class AiImageMetadataService
     /// <summary>ファイルパスから抽出（仕様 §6）。非対応/例外なら null。</summary>
     public static AiImageMetadata? Extract(string path)
     {
-        try { return ExtractFromBytes(File.ReadAllBytes(path)); }
+        try
+        {
+            // 動画はストリームでコンテナを走査する（GB 級ファイルの全読みを避ける）。
+            // MP4/MOV 以外の動画（mkv 等）は ftyp を持たず null になるだけ（当面未対応）。
+            if (FileTypes.IsVideo(path))
+            {
+                using var fs = File.OpenRead(path);
+                return ExtractFromMp4(fs);
+            }
+            return ExtractFromBytes(File.ReadAllBytes(path));
+        }
         catch (Exception ex)
         {
             Debug.WriteLine($"[AiImageMeta] read failed: {ex.Message}");
@@ -60,6 +70,10 @@ public static class AiImageMetadataService
             if (data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F'
                 && data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P')
                 return ExtractFromWebp(data);
+
+            // MP4/MOV: [size] "ftyp"（書庫内バイト列などから来た場合）
+            if (data[4] == 'f' && data[5] == 't' && data[6] == 'y' && data[7] == 'p')
+                return ExtractFromMp4(new MemoryStream(data));
 
             return null;
         }
@@ -808,6 +822,200 @@ public static class AiImageMetadataService
     }
 
     // -----------------------------------------------------------------
+    // MP4 / MOV (ComfyUI SaveVideo 等の生成 AI 動画)
+    //
+    // ComfyUI は動画保存時、QuickTime メタデータ（moov/udta/meta の keys + ilst、
+    // namespace "mdta"）へ key="prompt"（API グラフ JSON）等を書き込む。
+    // moov ボックスだけを読み、mdat（映像本体）はシークで飛ばす＝ファイル全読みしない
+    // （動画は GB 級になり得るため。Extract() が動画拡張子をここへ振り分ける）。
+    // -----------------------------------------------------------------
+
+    private static AiImageMetadata? ExtractFromMp4(Stream s)
+    {
+        long fileSize = s.Length;
+        byte[]? moov = null;
+
+        // ---- トップレベルボックス走査（ftyp 確認・moov 取得） ----
+        long pos = 0;
+        var hdr = new byte[8];
+        bool first = true;
+        while (pos + 8 <= fileSize)
+        {
+            s.Position = pos;
+            if (!ReadExact(s, hdr, 8)) break;
+            long size = BinaryPrimitives.ReadUInt32BigEndian(hdr.AsSpan(0, 4));
+            string typ = Encoding.ASCII.GetString(hdr, 4, 4);
+            int hdrLen = 8;
+            if (size == 1)
+            {
+                if (!ReadExact(s, hdr, 8)) break;
+                size = (long)BinaryPrimitives.ReadUInt64BigEndian(hdr.AsSpan(0, 8));
+                hdrLen = 16;
+            }
+            else if (size == 0) size = fileSize - pos;
+            if (first && typ != "ftyp") return null; // ISO-BMFF (MP4/MOV) ではない
+            first = false;
+            if (typ == "moov")
+            {
+                long body = size - hdrLen;
+                if (body <= 0 || body > 64 * 1024 * 1024) return null; // 異常サイズは対象外
+                moov = new byte[body];
+                if (!ReadExact(s, moov, (int)body)) return null;
+                break;
+            }
+            if (size < hdrLen) break;
+            pos += size;
+        }
+        if (moov == null) return null;
+
+        // ---- moov 内: 寸法（trak/tkhd）とメタデータ（udta/meta） ----
+        int w = 0, h = 0;
+        var kv = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (typ, _, start, len) in Mp4Boxes(moov, 0, moov.Length))
+        {
+            if (typ == "trak")
+            {
+                foreach (var (t2, _, s2, l2) in Mp4Boxes(moov, start, start + len))
+                    if (t2 == "tkhd") ReadTkhdSize(moov, s2, l2, ref w, ref h);
+            }
+            else if (typ == "udta")
+            {
+                foreach (var (t2, _, s2, l2) in Mp4Boxes(moov, start, start + len))
+                    if (t2 == "meta") ReadMetaKeysIlst(moov, s2, l2, kv);
+            }
+        }
+
+        // ---- ComfyUI: key="prompt"（API グラフ JSON）を画像と同じパーサで解釈 ----
+        if (kv.TryGetValue("prompt", out var comfyPrompt))
+        {
+            var meta = TryParseComfyPrompt(comfyPrompt, "MP4", fileSize, w, h);
+            if (meta is { HasAiData: true }) return meta;
+        }
+
+        // 署名（prompt / workflow キー）はあるが JSON を解釈できなかった場合は部分結果。
+        if (kv.ContainsKey("prompt") || kv.ContainsKey("workflow"))
+        {
+            var other = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var (k, v) in kv) AddGeneralMeta(other, k, v);
+            return BuildPartialAiResult("ComfyUI", other, "MP4", fileSize, w, h);
+        }
+
+        // AI 由来でなくても、取れたキー（encoder 等）は一般メタデータとして公開（仕様 §6）。
+        var otherMeta = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (k, v) in kv) AddGeneralMeta(otherMeta, k, v);
+        return new AiImageMetadata
+        {
+            Format = "MP4", FileSize = fileSize, Width = w, Height = h,
+            OtherMetadata = otherMeta,
+        };
+    }
+
+    /// <summary>start..end の連続ボックスを列挙。type は ASCII 4 文字、code は同 4 バイトの
+    /// ビッグエンディアン値（ilst の子はキー index が type になるため code で判定する）。</summary>
+    private static IEnumerable<(string type, uint code, int start, int len)> Mp4Boxes(byte[] b, int start, int end)
+    {
+        int off = start;
+        while (off + 8 <= end)
+        {
+            long size = BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(off, 4));
+            uint code = BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(off + 4, 4));
+            string typ = Encoding.ASCII.GetString(b, off + 4, 4);
+            int hdrLen = 8;
+            if (size == 1 && off + 16 <= end)
+            {
+                size = (long)BinaryPrimitives.ReadUInt64BigEndian(b.AsSpan(off + 8, 8));
+                hdrLen = 16;
+            }
+            else if (size == 0) size = end - off;
+            if (size < hdrLen || off + size > end) yield break;
+            yield return (typ, code, off + hdrLen, (int)(size - hdrLen));
+            off += (int)size;
+        }
+    }
+
+    /// <summary>tkhd から幅・高さ（16.16 固定小数）を読む。音声トラックは 0×0 なので最大値を採用。</summary>
+    private static void ReadTkhdSize(byte[] b, int start, int len, ref int w, ref int h)
+    {
+        if (len < 4) return;
+        int ver = b[start];
+        int wOff = start + (ver == 1 ? 88 : 76); // v1 は creation/modification/duration が 64bit
+        if (wOff + 8 > start + len) return;
+        int tw = (int)(BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(wOff, 4)) >> 16);
+        int th = (int)(BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(wOff + 4, 4)) >> 16);
+        if (tw > w) w = tw;
+        if (th > h) h = th;
+    }
+
+    /// <summary>meta ボックス内の keys（キー名表）と ilst（値。type が 1 始まりのキー index）を
+    /// 突き合わせ、UTF-8 テキスト値を kv へ集める。</summary>
+    private static void ReadMetaKeysIlst(byte[] b, int start, int len, Dictionary<string, string> kv)
+    {
+        // meta は ISO-BMFF では FullBox（先頭 4 バイトが version/flags）、QuickTime 古典形式では
+        // 直接子ボックスが始まる。先頭が子ボックスに見えるか（type が英数字か）で判別する。
+        int body = LooksLikeMp4Box(b, start, start + len) ? start : start + 4;
+
+        var keys = new List<string>(); // ilst の index は 1 始まり
+        int ilstStart = -1, ilstLen = 0;
+        foreach (var (typ, _, s2, l2) in Mp4Boxes(b, body, start + len))
+        {
+            if (typ == "keys" && l2 >= 8)
+            {
+                // ver/flags(4) + entry_count(4) + {size(4) + namespace(4)="mdta" + キー名}×n
+                int count = BinaryPrimitives.ReadInt32BigEndian(b.AsSpan(s2 + 4, 4));
+                int off = s2 + 8;
+                for (int i = 0; i < count && off + 8 <= s2 + l2; i++)
+                {
+                    int ksize = BinaryPrimitives.ReadInt32BigEndian(b.AsSpan(off, 4));
+                    if (ksize < 8 || off + ksize > s2 + l2) break;
+                    keys.Add(Encoding.UTF8.GetString(b, off + 8, ksize - 8));
+                    off += ksize;
+                }
+            }
+            else if (typ == "ilst") { ilstStart = s2; ilstLen = l2; }
+        }
+        if (ilstStart < 0 || keys.Count == 0) return;
+
+        foreach (var (_, code, s2, l2) in Mp4Boxes(b, ilstStart, ilstStart + ilstLen))
+        {
+            int idx = (int)code; // このボックスの type がキー index
+            if (idx <= 0 || idx > keys.Count) continue;
+            foreach (var (dt, _, s3, l3) in Mp4Boxes(b, s2, s2 + l2))
+            {
+                if (dt != "data" || l3 < 8) continue;
+                // data: type indicator(4) + locale(4) + 値。type=1 が UTF-8 テキスト。
+                if (BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(s3, 4)) != 1) continue;
+                var key = keys[idx - 1];
+                if (!kv.ContainsKey(key)) kv[key] = Encoding.UTF8.GetString(b, s3 + 8, l3 - 8);
+            }
+        }
+    }
+
+    private static bool LooksLikeMp4Box(byte[] b, int off, int end)
+    {
+        if (off + 8 > end) return false;
+        for (int i = 4; i < 8; i++)
+        {
+            byte c = b[off + i];
+            bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                      || c == ' ' || c == 0xA9; // 0xA9 = '©'（QuickTime の ©cmt 等）
+            if (!ok) return false;
+        }
+        return true;
+    }
+
+    private static bool ReadExact(Stream s, byte[] buf, int count)
+    {
+        int read = 0;
+        while (read < count)
+        {
+            int n = s.Read(buf, read, count - read);
+            if (n <= 0) return false;
+            read += n;
+        }
+        return true;
+    }
+
+    // -----------------------------------------------------------------
     // ComfyUI prompt JSON パース (workflow グラフを辿る)
     //
     // ComfyUI は PNG の tEXt チャンク (key="prompt") に「API workflow」と呼ばれる JSON を埋め込む。
@@ -841,10 +1049,27 @@ public static class AiImageMetadataService
             // グラフとみなし、sampler が無い画像加工系ワークフローでも取れる情報だけ返す。
             bool isComfyGraph = false;
             System.Text.Json.JsonElement? samplerInputs = null;
+            bool samplerTraceable = false; // 選択中の sampler が positive/negative/guider を持つか
             string? model = null;
             string? srcImage = null;
             int?    latW  = null;
             int?    latH  = null;
+            var loras = new List<string>(); // 適用 LoRA（複数可）: "name (0.8)" 形式
+            var clips = new List<string>(); // テキストエンコーダー (CLIPLoader / DualCLIPLoader 等)
+            var vaes  = new List<string>(); // VAE (VAELoader。動画は映像用+音声用の複数もあり得る)
+
+            // 数値入力の取得（LoRA 強度用）。無ければ null。
+            static double? NumIn(System.Text.Json.JsonElement obj, string name)
+                => obj.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.Number
+                    ? v.GetDouble() : null;
+            // "name (0.8)" / model と clip で強度が違えば "name (0.8/0.5)"。強度不明なら名前だけ。
+            static string FmtLora(string name, double? sm, double? sc)
+            {
+                static string F(double d) => d.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                if (sm is double m && sc is double c && Math.Abs(m - c) > 0.0005) return $"{name} ({F(m)}/{F(c)})";
+                if ((sm ?? sc) is double s) return $"{name} ({F(s)})";
+                return name;
+            }
 
             foreach (var prop in root.EnumerateObject())
             {
@@ -854,10 +1079,22 @@ public static class AiImageMetadataService
                 var ct = ctElem.GetString() ?? "";
                 isComfyGraph = true;
 
-                // sampler を 1 つ見つけたら hold (= 後段で positive/negative を辿る)
-                if (samplerInputs is null && ct.Contains("Sampler", StringComparison.OrdinalIgnoreCase))
+                // sampler を 1 つ選ぶ (= 後段で positive/negative を辿る)。
+                // KSamplerSelect（sampler_name を選ぶだけの補助ノード）等も "Sampler" を含むため、
+                // プロンプトへ辿れる入力 (positive/negative/guider) を持つ本体ノードを優先する
+                // （動画系: RandomNoise + KSamplerSelect + SamplerCustomAdvanced 構成で
+                //   KSamplerSelect が先に列挙され positive が取れなくなる実例あり）。
+                if (ct.Contains("Sampler", StringComparison.OrdinalIgnoreCase)
+                    && node.TryGetProperty("inputs", out var sip))
                 {
-                    if (node.TryGetProperty("inputs", out var ip)) samplerInputs = ip;
+                    bool traceable = sip.TryGetProperty("positive", out _)
+                                     || sip.TryGetProperty("negative", out _)
+                                     || sip.TryGetProperty("guider", out _);
+                    if (samplerInputs is null || (traceable && !samplerTraceable))
+                    {
+                        samplerInputs = sip;
+                        samplerTraceable = traceable;
+                    }
                 }
 
                 // model: ローダ系ノードから取得。
@@ -882,6 +1119,55 @@ public static class AiImageMetadataService
                             break;
                         }
                     }
+                }
+
+                // LoRA 適用: LoraLoader / LoraLoaderModelOnly（lora_name + strength_model/strength_clip）と、
+                // rgthree Power Lora Loader（lora_1.. = {on, lora, strength} のネストオブジェクト）の両対応。
+                if (ct.Contains("Lora", StringComparison.OrdinalIgnoreCase)
+                    && node.TryGetProperty("inputs", out var lIn)
+                    && lIn.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    if (lIn.TryGetProperty("lora_name", out var ln)
+                        && ln.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var s = FmtLora(ln.GetString()!, NumIn(lIn, "strength_model"), NumIn(lIn, "strength_clip"));
+                        if (!loras.Contains(s)) loras.Add(s);
+                    }
+                    foreach (var lp in lIn.EnumerateObject())
+                    {
+                        var v = lp.Value;
+                        if (v.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                        if (!v.TryGetProperty("lora", out var ln2)
+                            || ln2.ValueKind != System.Text.Json.JsonValueKind.String) continue;
+                        if (v.TryGetProperty("on", out var on)
+                            && on.ValueKind == System.Text.Json.JsonValueKind.False) continue; // OFF は適用外
+                        var s = FmtLora(ln2.GetString()!, NumIn(v, "strength"), null);
+                        if (!loras.Contains(s)) loras.Add(s);
+                    }
+                }
+
+                // テキストエンコーダー: CLIPLoader / DualCLIPLoader / TripleCLIPLoader (clip_name / clip_name1..N)
+                if (ct.Contains("CLIPLoader", StringComparison.OrdinalIgnoreCase)
+                    && node.TryGetProperty("inputs", out var cIn)
+                    && cIn.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    foreach (var cp in cIn.EnumerateObject())
+                    {
+                        if (!cp.Name.StartsWith("clip_name", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (cp.Value.ValueKind != System.Text.Json.JsonValueKind.String) continue;
+                        var s = cp.Value.GetString()!;
+                        if (!string.IsNullOrEmpty(s) && !clips.Contains(s)) clips.Add(s);
+                    }
+                }
+
+                // VAE: VAELoader (vae_name)。動画ワークフローは映像用+音声用の複数があり得る。
+                if (ct.Contains("VAELoader", StringComparison.OrdinalIgnoreCase)
+                    && node.TryGetProperty("inputs", out var vIn)
+                    && vIn.TryGetProperty("vae_name", out var vn)
+                    && vn.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    var s = vn.GetString()!;
+                    if (!string.IsNullOrEmpty(s) && !vaes.Contains(s)) vaes.Add(s);
                 }
 
                 // latent サイズ: EmptyLatentImage / EmptySD3LatentImage 等
@@ -973,6 +1259,9 @@ public static class AiImageMetadataService
 
             if (latW is int lw && latH is int lh) parameters["Size"] = $"{lw}x{lh}";
             if (!string.IsNullOrEmpty(model))     parameters["Model"] = model!;
+            if (loras.Count > 0) parameters["LoRA"] = string.Join(", ", loras);
+            if (clips.Count > 0) parameters["Text encoder"] = string.Join(", ", clips);
+            if (vaes.Count > 0)  parameters["VAE"] = string.Join(", ", vaes);
             if (!string.IsNullOrEmpty(srcImage))  parameters["Source image"] = srcImage!;
             // 参考 viewer に合わせて Generator を埋める。ComfyUI 由来 (= prompt JSON が valid だった) のは確定。
             parameters["Generator"] = "ComfyUI";

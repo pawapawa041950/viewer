@@ -33,33 +33,44 @@ internal static class ShellIcon
         }
     }
 
-    // GetImage が返す HBITMAP は 32bpp 乗算済みアルファの DIB セクション。ビットから
-    // Pbgra32 の BitmapSource を作る（アルファ保持＝透過が黒くならない）。DIB は環境により
-    // ボトムアップ（biHeight>0）で格納されることがあり、その場合は上下反転して返す
-    // （＝アイコンが上下逆になる問題の対策）。
-    private static ImageSource? FromHBitmap(IntPtr hbm)
+    // GetImage が返す HBITMAP（32bpp 乗算済みアルファ）から Pbgra32 の BitmapSource を作る。
+    // ピクセルは GetDIBits に「トップダウン（負の高さ）」で要求して取り出す：DIB の格納方向は
+    // ソースにより異なり（アイコン=ボトムアップ、動画サムネイル=トップダウンの実例あり、
+    // どちらも biHeight>0 を名乗る）、生ビット読み＋biHeight 符号の反転推測では両立できない。
+    // GetDIBits なら格納方向の解決を GDI が行うため常に正しい向きになる。
+    // ShellThumbnail（動画サムネイル）とも共用。
+    internal static BitmapSource? FromHBitmap(IntPtr hbm)
     {
-        var ds = new DIBSECTION();
-        if (GetObject(hbm, Marshal.SizeOf<DIBSECTION>(), ref ds) == 0
-            || ds.dsBm.bmBits == IntPtr.Zero || ds.dsBm.bmBitsPixel != 32)
+        var bm = new BITMAP();
+        if (GetObject(hbm, Marshal.SizeOf<BITMAP>(), ref bm) == 0 || bm.bmWidth <= 0 || bm.bmHeight <= 0)
             return null;
 
-        int stride = ds.dsBm.bmWidthBytes;
-        int length = stride * ds.dsBm.bmHeight;
-        var src = BitmapSource.Create(
-            ds.dsBm.bmWidth, ds.dsBm.bmHeight, 96, 96, PixelFormats.Pbgra32, null, ds.dsBm.bmBits, length, stride);
-        src.Freeze();
-
-        // biHeight > 0 = ボトムアップ格納（メモリ先頭が最下行）。トップダウン読みすると
-        // 上下逆になるので反転する。biHeight < 0 = トップダウンなのでそのまま。
-        if (ds.dsBmih.biHeight > 0)
+        int w = bm.bmWidth, h = bm.bmHeight, stride = w * 4;
+        var bi = new BITMAPINFOHEADER
         {
-            var flipped = new TransformedBitmap(src, new ScaleTransform(1, -1));
-            flipped.Freeze();
-            return flipped;
+            biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
+            biWidth = w,
+            biHeight = -h, // 負 = トップダウンで受け取る
+            biPlanes = 1,
+            biBitCount = 32,
+            biCompression = 0, // BI_RGB
+        };
+        var buf = new byte[stride * h];
+        IntPtr dc = GetDC(IntPtr.Zero);
+        try
+        {
+            if (GetDIBits(dc, hbm, 0, (uint)h, buf, ref bi, DIB_RGB_COLORS) == 0) return null;
         }
+        finally
+        {
+            ReleaseDC(IntPtr.Zero, dc);
+        }
+        var src = BitmapSource.Create(w, h, 96, 96, PixelFormats.Pbgra32, null, buf, stride);
+        src.Freeze();
         return src;
     }
+
+    private const uint DIB_RGB_COLORS = 0;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct BITMAP
@@ -89,20 +100,18 @@ internal static class ShellIcon
         public uint biClrImportant;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DIBSECTION
-    {
-        public BITMAP dsBm;
-        public BITMAPINFOHEADER dsBmih;
-        public uint dsBitfield0;
-        public uint dsBitfield1;
-        public uint dsBitfield2;
-        public IntPtr dshSection;
-        public uint dsOffset;
-    }
+    [DllImport("gdi32.dll")]
+    private static extern int GetObject(IntPtr hObject, int nCount, ref BITMAP lpObject);
 
     [DllImport("gdi32.dll")]
-    private static extern int GetObject(IntPtr hObject, int nCount, ref DIBSECTION lpObject);
+    private static extern int GetDIBits(
+        IntPtr hdc, IntPtr hbm, uint start, uint cLines, byte[] lpvBits, ref BITMAPINFOHEADER lpbmi, uint usage);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDC(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
 
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr hObject);

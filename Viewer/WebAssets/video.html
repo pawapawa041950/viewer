@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Video Viewer</title>
+  <link rel="stylesheet" href="video.css" />
+</head>
+<body>
+  <!-- 画像ウィンドウ踏襲：中央にコンテンツ、右側に開閉可能な詳細ペイン（resizer で幅変更） -->
+  <div id="stage" class="stage">
+    <video id="vid" controls autoplay></video>
+    <div id="errBox" class="err hidden">
+      <div>この形式はアプリ内で再生できません</div>
+      <button id="openExternal">既定のアプリで開く</button>
+    </div>
+  </div>
+  <div id="overlayResizer" class="overlay-resizer hidden"></div>
+  <div id="overlay" class="overlay hidden"></div>
+
+  <!-- 左上ボタン群（マウス移動時のみ表示）：詳細ペイン / ループ / A-B リピート -->
+  <div id="sideBtns" class="side-btns">
+    <button id="detailBtn" class="side-btn" title="詳細ペインの表示/非表示 (D)">&#8505;</button>
+    <button id="loopBtn" class="side-btn" title="繰り返し再生 (R)">&#10227;</button>
+    <button id="abBtn" class="side-btn ab" title="A-B リピート (A)：A点→B点→解除">A-B</button>
+  </div>
+
+  <script src="details-render.js"></script>
+  <script src="video-glue.js"></script>
+</body>
+</html>

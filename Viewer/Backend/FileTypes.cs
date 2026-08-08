@@ -15,8 +15,17 @@ public static class FileTypes
         "zip", "7z", "rar",
     };
 
+    // 動画（サムネイルはシェル＝Explorer と同じハンドラで生成するため、ここに無い形式でも
+    // OS が対応していれば拡張子を足すだけで表示できる）。
+    private static readonly HashSet<string> VideoExts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mp4", "m4v", "mov", "avi", "wmv", "mkv", "webm",
+        "mpg", "mpeg", "ts", "m2ts", "3gp", "flv",
+    };
+
     public static bool IsImage(string path) => ImageExts.Contains(Ext(path));
     public static bool IsArchive(string path) => ArchiveExts.Contains(Ext(path));
+    public static bool IsVideo(string path) => VideoExts.Contains(Ext(path));
 
     /// <summary>Chromium が直接表示できない画像か（仕様 §3：TIFF は要変換）。</summary>
     public static bool NeedsTranscode(string path)

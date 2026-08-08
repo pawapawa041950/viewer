@@ -9,6 +9,9 @@
 
   function isImage(path) { return /\.(jpe?g|png|gif|webp|bmp|tiff?)$/i.test(path); }
   function isArchive(path) { return /\.(zip|7z|rar)$/i.test(path); }
+  // 動画（FileTypes.cs の VideoExts と一致させる）。プレビュー＝シェルサムネイル、
+  // メタデータ＝MP4 の ComfyUI prompt 等（get_image_details がコンテナを解釈）。
+  function isVideo(path) { return /\.(mp4|m4v|mov|avi|wmv|mkv|webm|mpe?g|ts|m2ts|3gp|flv)$/i.test(path); }
 
   // 一覧ペインと同じく、フォルダー/圧縮ファイルのサムネイル表示は設定で ON/OFF できる。
   // 「一覧でサムネイルが出ているフォルダー/書庫」だけ詳細ペインにも出す、という要件のため
@@ -59,13 +62,16 @@
     const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
 
     preview.innerHTML = '';
-    if (isImage(path)) {
+    if (isImage(path) || isVideo(path)) {
       const img = document.createElement('img');
-      img.src = srcUrl(path, archivePath);
+      // 動画は t= を付けてシェルサムネイルを要求する（t 無しは動画本体のストリーミング配信に
+      // なるため <img> では表示できない）。作れない動画は 404 → プレビューなしにする。
+      img.onerror = () => img.remove();
+      img.src = srcUrl(path, archivePath) + (isVideo(path) ? '&t=512' : '');
       preview.appendChild(img);
     }
 
-    if (isImage(path)) {
+    if (isImage(path) || isVideo(path)) {
       let md = null;
       try {
         md = archivePath

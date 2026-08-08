@@ -76,6 +76,11 @@ public partial class MainWindow : Window
     private ImageHost? _sharedImageHost;
     private readonly Dictionary<string, ImageHost> _tabImageHosts = new();
 
+    // 動画ウィンドウ（単一インスタンス。仕様 §4 踏襲の簡易版）。
+    private VideoWindow? _videoWindow;
+    private IpcBridge? _videoBridge;
+    private string? _pendingVideoPath;
+
     // ショートカット編集ウィンドウ（仕様 §8：単一インスタンス）。
     private ShortcutsWindow? _shortcutsWindow;
     private SettingsWindow? _settingsWindow;
@@ -162,6 +167,8 @@ public partial class MainWindow : Window
         {
             try { h.Window.Close(); } catch { /* 破棄済みは無視 */ }
         }
+        // 動画ウィンドウも追随して閉じる（残すとアプリが終了しない）。
+        try { _videoWindow?.Close(); } catch { /* 破棄済みは無視 */ }
     }
 
     // ---- メニュー（ファイル/ツール/ヘルプ）----
@@ -793,6 +800,17 @@ public partial class MainWindow : Window
         try
         {
             var uriStr = args.Request.Uri;
+
+            // 動画本体（t= サムネイル要求なし）は Range 対応でストリーミング配信（<video> 用・仕様 §4.6）。
+            // 全読みしない（動画は GB 級になり得る）。
+            var reqUri = new Uri(uriStr);
+            var vPath = QueryParam(reqUri.Query, "p");
+            if (!string.IsNullOrEmpty(vPath) && FileTypes.IsVideo(vPath) && ParseThumb(reqUri.Query) == 0)
+            {
+                RespondVideoStream(env, args, vPath);
+                return;
+            }
+
             var (bytes, mime) = await Task.Run(() => ReadImageBytes(uriStr));
             if (bytes == null)
                 args.Response = env.CreateWebResourceResponse(null, 404, "Not Found", "");
@@ -807,6 +825,136 @@ public partial class MainWindow : Window
         finally
         {
             deferral.Complete();
+        }
+    }
+
+    /// <summary>動画本体のストリーミング配信（&lt;video&gt; 用）。Range ヘッダー（シーク）に 206 で応える。
+    /// FileShare.ReadWrite | Delete で開き、再生中でも移動/削除を妨げない（仕様 §3 に準拠）。</summary>
+    private static void RespondVideoStream(CoreWebView2Environment env, CoreWebView2WebResourceRequestedEventArgs args, string path)
+    {
+        if (!File.Exists(path))
+        {
+            args.Response = env.CreateWebResourceResponse(null, 404, "Not Found", "");
+            return;
+        }
+
+        var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        long total = fs.Length;
+        var mime = VideoMimeOf(path);
+
+        string? range = null;
+        try { if (args.Request.Headers.Contains("Range")) range = args.Request.Headers.GetHeader("Range"); }
+        catch { /* ヘッダー無し */ }
+
+        long start = 0, end = total - 1;
+        bool partial = false;
+        if (!string.IsNullOrEmpty(range))
+        {
+            // "bytes=start-end" / "bytes=start-" / "bytes=-suffix"
+            var m = System.Text.RegularExpressions.Regex.Match(range!, @"bytes=(\d*)-(\d*)");
+            if (m.Success)
+            {
+                var g1 = m.Groups[1].Value;
+                var g2 = m.Groups[2].Value;
+                if (g1.Length > 0)
+                {
+                    start = long.Parse(g1);
+                    if (g2.Length > 0) end = long.Parse(g2);
+                }
+                else if (g2.Length > 0)
+                {
+                    start = Math.Max(0, total - long.Parse(g2)); // 末尾 N バイト
+                }
+                partial = true;
+            }
+        }
+
+        if (start < 0 || start >= total || end < start)
+        {
+            fs.Dispose();
+            args.Response = env.CreateWebResourceResponse(null, 416, "Range Not Satisfiable", $"Content-Range: bytes */{total}");
+            return;
+        }
+        if (end >= total) end = total - 1;
+
+        fs.Position = start;
+        long len = end - start + 1;
+        var body = new SlicedStream(fs, len);
+        var headers = $"Content-Type: {mime}\r\nAccept-Ranges: bytes\r\nContent-Length: {len}";
+        if (partial)
+        {
+            headers += $"\r\nContent-Range: bytes {start}-{end}/{total}";
+            args.Response = env.CreateWebResourceResponse(body, 206, "Partial Content", headers);
+        }
+        else
+        {
+            args.Response = env.CreateWebResourceResponse(body, 200, "OK", headers);
+        }
+    }
+
+    private static string VideoMimeOf(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".mp4" or ".m4v" => "video/mp4",
+        ".mov" => "video/quicktime",
+        ".webm" => "video/webm",
+        ".mkv" => "video/x-matroska",
+        ".avi" => "video/x-msvideo",
+        ".wmv" => "video/x-ms-wmv",
+        ".mpg" or ".mpeg" => "video/mpeg",
+        ".ts" or ".m2ts" => "video/mp2t",
+        ".3gp" => "video/3gpp",
+        ".flv" => "video/x-flv",
+        _ => "application/octet-stream",
+    };
+
+    /// <summary>内側ストリームの現在位置から length バイトだけを見せる読み取り専用ラッパー
+    /// （Range 応答の本文用）。WebView2 は渡された Stream を IStream として扱い
+    /// Length（Stat）や Seek を呼ぶため、シーク対応が必須（無いと NotSupportedException）。
+    /// Dispose で内側の FileStream も閉じる。</summary>
+    private sealed class SlicedStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly long _start;   // スライス先頭の内側ストリーム位置
+        private readonly long _length;  // スライスの長さ
+        public SlicedStream(Stream inner, long length)
+        {
+            _inner = inner;
+            _start = inner.Position;
+            _length = length;
+        }
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => _length;
+        public override long Position
+        {
+            get => _inner.Position - _start;
+            set => _inner.Position = _start + Math.Clamp(value, 0, _length);
+        }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            long remaining = _length - Position;
+            if (remaining <= 0) return 0;
+            return _inner.Read(buffer, offset, (int)Math.Min(count, remaining));
+        }
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            Position = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => Position + offset,
+                SeekOrigin.End => _length + offset,
+                _ => throw new ArgumentOutOfRangeException(nameof(origin)),
+            };
+            return Position;
+        }
+        public override void Flush() { }
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _inner.Dispose();
+            base.Dispose(disposing);
         }
     }
 
@@ -843,6 +991,13 @@ public partial class MainWindow : Window
 
             var path = QueryParam(uri.Query, "p");
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return (null, "");
+            // 動画のサムネイル要求（t= 付き）はシェルサムネイル（Explorer と同じ生成・仕様 §3）。
+            // 本体（t 無し）は OnFileResourceRequested が Range 対応でストリーミング配信済み。
+            if (FileTypes.IsVideo(path))
+            {
+                var vthumb = Shell.ShellThumbnail.GetPng(path, thumbMax > 0 ? thumbMax : 512);
+                return vthumb != null ? (vthumb, "image/png") : (null, "");
+            }
             var fileBytes = File.ReadAllBytes(path);
             if (thumbMax > 0)
             {
@@ -1016,6 +1171,9 @@ public partial class MainWindow : Window
         bridge.Register("get_files_from_clipboard", _ =>
             (object?)System.Windows.Clipboard.GetFileDropList().Cast<string>().ToArray());
         bridge.Register("paste_from_clipboard", args => (object?)PasteFromClipboard(Str(args, "destination")));
+
+        // 動画を開く（動画ウィンドウ・単一インスタンス）。一覧・詳細ペインのどこからでも呼べる。
+        bridge.Register("open_video", args => { _ = OpenVideoWindowAsync(Str(args, "path")); return (object?)null; });
 
         // コンテキストメニュー用（仕様 §2.4）
         bridge.Register("open_in_explorer", args => { OpenInExplorer(Str(args, "path")); return (object?)null; });
@@ -1222,6 +1380,50 @@ public partial class MainWindow : Window
     {
         if (_sharedImageHost != null) yield return _sharedImageHost;
         foreach (var h in _tabImageHosts.Values) yield return h;
+    }
+
+    // ---- 動画ウィンドウ（単一インスタンス。画像ウィンドウ踏襲の簡易版） ----
+    private async Task OpenVideoWindowAsync(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        _pendingVideoPath = path;
+
+        // 再利用：既存ウィンドウを前面化して差し替え通知。
+        if (_videoWindow != null)
+        {
+            if (_videoWindow.WindowState == WindowState.Minimized) _videoWindow.WindowState = WindowState.Normal;
+            _videoWindow.Activate();
+            _videoWindow.View.Focus();
+            _videoBridge?.EmitEvent("load_video", new { path });
+            return;
+        }
+
+        var win = new VideoWindow();
+        _videoWindow = win;
+        win.Closed += (_, _) => { _videoWindow = null; _videoBridge = null; };
+        win.Show();
+
+        _videoBridge = await SetupWebViewAsync(win.View, "video.html", b =>
+        {
+            RegisterCommands(b, null); // get_image_details / open_with_default_app 等の共通コマンド
+            b.Register("video_ready", _ => (object?)new { path = _pendingVideoPath });
+            b.Register("close_video", _ => { win.Close(); return (object?)null; });
+            b.Register("set_video_title", args => { win.Title = Str(args, "title"); return (object?)null; });
+        });
+
+        // <video> 標準コントロールの全画面ボタン（HTML 全画面要素）にウィンドウを追随させる。
+        var core = win.View.CoreWebView2;
+        core.ContainsFullScreenElementChanged += (_, _) => win.SetFullscreen(core.ContainsFullScreenElement);
+
+        // 表示直後は WebView2 にキーボードフォーカスが無い（D/Escape が効かない）ので、
+        // 読み込み完了時に移す（画像ウィンドウと同じ対策）。
+        var view = win.View;
+        void FocusWhenLoaded(object? s, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            view.CoreWebView2.NavigationCompleted -= FocusWhenLoaded;
+            Dispatcher.BeginInvoke(() => { win.Activate(); view.Focus(); });
+        }
+        view.CoreWebView2.NavigationCompleted += FocusWhenLoaded;
     }
 
     private async Task<ImageHost> CreateImageHostAsync(TabContext tab, object payload)

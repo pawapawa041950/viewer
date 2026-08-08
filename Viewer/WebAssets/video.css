@@ -1,0 +1,140 @@
+/* 動画ウィンドウ（video.html）。画像ウィンドウ（viewer.css）のレイアウトを踏襲：
+   中央に動画（アスペクト比維持でウィンドウにフィット）＋右側に開閉可能な詳細ペイン。
+   ズーム/回転/複数表示は無し。 */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  user-select: none;
+  font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+}
+
+body { display: flex; flex-direction: row; }
+
+.stage {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* アスペクト比維持でフィット。コントロールバーは <video> 標準のもの。 */
+.stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  outline: none;
+}
+
+/* 再生できない形式のフォールバック表示 */
+.err {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #ccc;
+  font-size: 14px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+.err.hidden { display: none; }
+.err button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  cursor: pointer;
+}
+.err button:hover { background: rgba(255, 255, 255, 0.4); }
+
+/* 左上ボタン群（半透明・マウス移動時のみフェード表示。viewer.css の浮遊ボタンと同意匠） */
+.side-btns {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+.side-btns.show { opacity: 1; pointer-events: auto; }
+.side-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.side-btn:hover { background: rgba(255, 255, 255, 0.4); }
+.side-btn.active {
+  background: rgba(120, 170, 255, 0.55);
+  border-color: rgba(160, 200, 255, 0.85);
+}
+/* A-B リピート：A 点だけ設定済み（B 点待ち）の中間状態 */
+.side-btn.half {
+  background: rgba(255, 200, 100, 0.45);
+  border-color: rgba(255, 220, 150, 0.85);
+}
+.side-btn.ab { font-size: 14px; font-weight: bold; }
+
+/* 詳細ペイン（viewer.css と同意匠。テキストは選択・コピー可能） */
+.overlay {
+  position: relative;
+  flex: 0 0 auto;
+  width: 320px;
+  height: 100%;
+  background: rgba(16, 22, 38, 0.98);
+  color: #eee;
+  overflow: auto;
+  padding: 12px;
+  box-sizing: border-box;
+  font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+  font-size: 12px;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+.overlay.hidden { display: none; }
+
+.overlay-resizer {
+  flex: 0 0 6px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.10);
+  cursor: ew-resize;
+}
+.overlay-resizer:hover { background: rgba(120, 170, 255, 0.5); }
+.overlay-resizer.hidden { display: none; }
+.overlay .name { font-weight: bold; margin-bottom: 8px; word-break: break-all; }
+.overlay .row { display: flex; gap: 8px; margin: 3px 0; }
+.overlay .row .k { color: #8aa; min-width: 64px; }
+.overlay .row .v { color: #eee; word-break: break-all; }
+.overlay .section { margin: 10px 0 4px; font-weight: bold; color: #9bd; border-bottom: 1px solid #2a3a55; padding-bottom: 2px; }
+.overlay .prompt { white-space: pre-wrap; word-break: break-word; background: #0b1322; border-radius: 4px; padding: 6px; line-height: 1.4; }
+.overlay .prompt.neg { color: #e6a9a9; }
+.overlay .grid { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
+.overlay .grid .pk { color: #8aa; }
+.overlay .grid .pv { color: #eee; word-break: break-all; }

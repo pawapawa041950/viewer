@@ -46,7 +46,8 @@ internal static class ShellInterop
     {
         RESIZETOFIT = 0x00,
         BIGGERSIZEOK = 0x01,
-        ICONONLY = 0x04,   // サムネイルではなくアイコンを取得
+        ICONONLY = 0x04,      // サムネイルではなくアイコンを取得
+        THUMBNAILONLY = 0x08, // サムネイルのみ（無ければ失敗＝アイコンにフォールバックしない）
     }
 }
 

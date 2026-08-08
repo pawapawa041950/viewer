@@ -767,31 +767,8 @@
     try { md = await invoke('get_image_details', detailsArgs()); } catch {}
     overlayEl.innerHTML = renderDetails(name, md);
   }
-  function ovRow(k, v) { return '<div class="row"><span class="k">' + esc(k) + '</span><span class="v">' + esc(v) + '</span></div>'; }
-  function renderDetails(name, md) {
-    const parts = ['<div class="name">' + esc(name) + '</div>'];
-    if (md) {
-      if (md.has_ai_data) {
-        if (md.generator) parts.push(ovRow('生成元', md.generator));
-        if (md.model) parts.push(ovRow('モデル', md.model));
-      }
-      parts.push(ovRow('形式', md.format));
-      if (md.width && md.height) parts.push(ovRow('画像サイズ', md.width + ' × ' + md.height));
-      if (md.has_ai_data) {
-        if (md.positive) parts.push('<div class="section">プロンプト</div><div class="prompt">' + esc(md.positive) + '</div>');
-        if (md.negative) parts.push('<div class="section">ネガティブ</div><div class="prompt neg">' + esc(md.negative) + '</div>');
-        const ps = md.parameters || {};
-        const keys = Object.keys(ps).filter((k) => k !== 'Model' && k !== 'Generator');
-        if (keys.length) {
-          parts.push('<div class="section">生成パラメータ</div><div class="grid">');
-          for (const k of keys) parts.push('<div class="pk">' + esc(k) + '</div><div class="pv">' + esc(ps[k]) + '</div>');
-          parts.push('</div>');
-        }
-      }
-    }
-    return parts.join('');
-  }
-  function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  // 詳細ペインの HTML 生成は動画ウィンドウと共用（details-render.js）。
+  function renderDetails(name, md) { return window.DetailsRender.render(name, md); }
 
   // ---- ホストからの通知 ----
   const ev = window.__TAURI__ && window.__TAURI__.event;

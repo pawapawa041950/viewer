@@ -137,8 +137,8 @@ const FileList = (function () {
    *
    * @param {object} file
    *   { path: string, name: string, is_dir: boolean, is_image: boolean,
-   *     is_archive?: boolean, modified_at?: number, archivePath?: string,
-   *     innerPath?: string }
+   *     is_archive?: boolean, is_video?: boolean, modified_at?: number,
+   *     archivePath?: string, innerPath?: string }
    * @param {object} [extras]
    *   Optional dataset overrides applied to the element.
    */
@@ -147,6 +147,7 @@ const FileList = (function () {
     item.className = 'file-item';
     item.dataset.path = file.path;
     item.dataset.isImage = file.is_image ? 'true' : 'false';
+    item.dataset.isVideo = file.is_video ? 'true' : 'false';
     item.dataset.type = file.is_dir ? 'folder' : 'file';
     if (file.modified_at != null) {
       item.dataset.mtime = String(file.modified_at);
@@ -168,6 +169,14 @@ const FileList = (function () {
       iconHtml =
         '<div class="file-icon folder thumb-host">' +
           '<span class="thumb-badge">📁</span>' +
+          '<img class="thumb-img" draggable="false" alt="" />' +
+        '</div>';
+    } else if (file.is_video) {
+      // 🎞️動画：再生ボタン風バッジ。サムネイルが取れたら 📁/📦 と同じく
+      // バッジ左上＋右下サムネイル、取れなければバッジ中央のまま（has-thumb 無し）。
+      iconHtml =
+        '<div class="file-icon video thumb-host">' +
+          '<span class="thumb-badge video-badge"></span>' +
           '<img class="thumb-img" draggable="false" alt="" />' +
         '</div>';
     } else {
@@ -597,6 +606,8 @@ const FileList = (function () {
     if (isImage) {
       const name = item.querySelector('.file-name')?.textContent || '';
       opts.onOpenImage && opts.onOpenImage(path, name);
+    } else if (item.dataset.isVideo === 'true') {
+      opts.onOpenVideo && opts.onOpenVideo(path);
     } else if (isDir) {
       opts.onOpenFolder && opts.onOpenFolder(path);
     } else if (isArchive) {

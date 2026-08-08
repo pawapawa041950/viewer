@@ -24,6 +24,7 @@ public sealed class FileEntry
     public bool IsDir { get; set; }
     public bool IsImage { get; set; }
     public bool IsArchive { get; set; }
+    public bool IsVideo { get; set; }
     /// <summary>更新日時（エポックからのミリ秒）。フォルダーは null。</summary>
     public long? ModifiedAt { get; set; }
 }

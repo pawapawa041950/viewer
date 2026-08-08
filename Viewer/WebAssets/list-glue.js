@@ -73,6 +73,7 @@
     getDestinationFolder: () => (currentArchive ? null : currentFolder),
     getCurrentArchive: () => currentArchive,
     onOpenImage: (path) => openImageAt(path),
+    onOpenVideo: (path) => invoke('open_video', { path }),
     onOpenFolder: (path) => {
       if (currentArchive) enterArchiveInner(path);
       else loadFolder(path);
@@ -368,6 +369,7 @@
 
     grid.innerHTML = '';
     const imageItems = [];
+    const videoItems = [];
     const archiveItems = [];
     const folderItems = [];
     const innerFolderItems = []; // 書庫内のフォルダー（中の1枚目をサムネイル化）
@@ -380,6 +382,7 @@
       const item = FileList.createItem(file, inArchive ? { archivePath: archiveAtLoad } : {});
       grid.appendChild(item);
       if (file.is_image) imageItems.push({ item, file });
+      else if (file.is_video) videoItems.push({ item, file });
       else if (file.is_archive && !inArchive && showArchiveThumbs) archiveItems.push({ item, file });
       else if (file.is_dir && !inArchive && showFolderThumbs) folderItems.push({ item, file });
       else if (file.is_dir && inArchive && showFolderThumbs) innerFolderItems.push({ item, file });
@@ -390,6 +393,9 @@
     applyTagFilterDom(); // 再構築した DOM にタグフィルターを再適用（仕様 §7）
     notifyViewerImages(); // 開いているビューワの画像リストを最新の一覧に追従（増減を反映・仕様 §4.5）
     loadThumbnails(imageItems, myLoad);
+    // 動画＝シェルサムネイル（配信側が生成）。バッジ＋右下サムネの thumb-host 方式。
+    loadThumbHosts(videoItems, myLoad, null,
+      (file) => 'https://file.viewer/raw?p=' + encodeURIComponent(file.path));
     // 圧縮ファイル＝中の1枚目、フォルダー＝直下の1枚目をサムネイル化（取得は背景・NIO）。
     loadThumbHosts(archiveItems, myLoad, 'get_archive_first_image',
       (file, inner) => 'https://file.viewer/raw?a=' + encodeURIComponent(file.path) + '&i=' + encodeURIComponent(inner));
@@ -431,20 +437,23 @@
     }
 
     // 追加＋並べ替え：新リスト順に append（既存ノードは移動＝再読込なし、無ければ生成）。
-    const imageItems = [], archiveItems = [], folderItems = [];
+    const imageItems = [], videoItems = [], archiveItems = [], folderItems = [];
     for (const file of entries) {
       let item = existing.get(file.path);
       if (!item) {
         item = FileList.createItem(file, {});
         if (file.is_image) imageItems.push({ item, file });
+        else if (file.is_video) videoItems.push({ item, file });
         else if (file.is_archive && showArchiveThumbs) archiveItems.push({ item, file });
         else if (file.is_dir && showFolderThumbs) folderItems.push({ item, file });
       } else {
         // 既存ノードでも、サムネイル未読込のものは loadSeq の更新で前世代のロードが
         // 打ち切られている。新世代で再キューしないと読み込みが止まったままになる。
-        // （画像＝placeholder が残存 / 圧縮・フォルダ＝thumb-host が has-thumb 未付与）
+        // （画像＝placeholder が残存 / 動画・圧縮・フォルダ＝thumb-host が has-thumb 未付与）
         if (file.is_image) {
           if (item.querySelector('.file-icon.placeholder')) imageItems.push({ item, file });
+        } else if (file.is_video) {
+          if (!item.querySelector('.thumb-host.has-thumb')) videoItems.push({ item, file });
         } else if (file.is_archive && showArchiveThumbs) {
           if (!item.querySelector('.thumb-host.has-thumb')) archiveItems.push({ item, file });
         } else if (file.is_dir && showFolderThumbs) {
@@ -461,14 +470,17 @@
     applyTagFilterDom();
     notifyViewerImages();
     loadThumbnails(imageItems, myLoad);
+    loadThumbHosts(videoItems, myLoad, null,
+      (f) => 'https://file.viewer/raw?p=' + encodeURIComponent(f.path));
     loadThumbHosts(archiveItems, myLoad, 'get_archive_first_image',
       (f, inner) => 'https://file.viewer/raw?a=' + encodeURIComponent(f.path) + '&i=' + encodeURIComponent(inner));
     loadThumbHosts(folderItems, myLoad, 'get_folder_first_image',
       (f, imgPath) => 'https://file.viewer/raw?p=' + encodeURIComponent(imgPath));
   }
 
-  // 📦圧縮ファイル / 📁フォルダーのサムネイル（中の1枚目）をビューポート優先で読み込む（仕様 §3/§5）。
+  // 📦圧縮ファイル / 📁フォルダー / 🎞️動画のサムネイルをビューポート優先で読み込む（仕様 §3/§5）。
   // command で1枚目を取得（ホスト側は背景実行＝ブロックしない）、urlFn で配信URLを作って .thumb-img に設定。
+  // command が null のときは invoke せずファイル自身を対象にする（動画＝シェルサムネイル）。
   // argsFn を渡すと invoke 引数を差し替えできる（書庫内フォルダー＝archivePath+innerPath を渡す）。
   function loadThumbHosts(items, myLoad, command, urlFn, argsFn) {
     if (items.length === 0) return;
@@ -481,7 +493,7 @@
         const file = map.get(item);
         if (!file) continue;
         const callArgs = argsFn ? argsFn(file) : { path: file.path, archivePath: file.path };
-        invoke(command, callArgs).then((res) => {
+        (command ? invoke(command, callArgs) : Promise.resolve(file.path)).then((res) => {
           if (myLoad !== loadSeq || !res || !document.body.contains(item)) return;
           const img = item.querySelector('.thumb-img');
           if (!img) return;
@@ -581,6 +593,8 @@
     if (!el) return;
     if (el.dataset.isImage === 'true') {
       openImageAt(path);
+    } else if (el.dataset.isVideo === 'true') {
+      invoke('open_video', { path });
     } else if (el.dataset.type === 'folder') {
       if (currentArchive) enterArchiveInner(path);
       else loadFolder(path);

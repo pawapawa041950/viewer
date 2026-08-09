@@ -1400,7 +1400,14 @@ public partial class MainWindow : Window
 
         var win = new VideoWindow();
         _videoWindow = win;
-        win.Closed += (_, _) => { _videoWindow = null; _videoBridge = null; };
+        win.Closed += (_, _) =>
+        {
+            _videoWindow = null;
+            _videoBridge = null;
+            // WPF の WebView2 はウィンドウを閉じても自動破棄されず、ブラウザ側インスタンス
+            // （＝動画・音声の再生）が残り続ける。明示的に Dispose して即時停止・解放する。
+            try { win.View.Dispose(); } catch { /* 破棄済みは無視 */ }
+        };
         win.Show();
 
         _videoBridge = await SetupWebViewAsync(win.View, "video.html", b =>
@@ -1452,6 +1459,9 @@ public partial class MainWindow : Window
             if (ReferenceEquals(_sharedImageHost, host)) _sharedImageHost = null;
             var key = _tabImageHosts.FirstOrDefault(kv => ReferenceEquals(kv.Value, host)).Key;
             if (key != null) _tabImageHosts.Remove(key);
+            // 動画ウィンドウと同じく、WebView2 を明示的に破棄してブラウザ側インスタンスを解放する
+            // （閉じるたびにインスタンスが溜まるリークの防止）。
+            try { win.View.Dispose(); } catch { /* 破棄済みは無視 */ }
         };
         win.Show();
 

@@ -14,6 +14,7 @@
       <div class="cat" data-cat="filelist">ファイル一覧</div>
       <div class="cat" data-cat="foldertree">フォルダツリー</div>
       <div class="cat" data-cat="imagewin">画像ウィンドウ</div>
+      <div class="cat" data-cat="videowin">動画ウィンドウ</div>
     </nav>
 
     <!-- 右：設定パネル -->
@@ -135,6 +136,35 @@
           </div>
           <p class="hint">表示中の前後この枚数を先読みします。多いほど切替が速くなりますが、メモリ・読み込み負荷が増えます（0で無効）。</p>
         </div>
+      </section>
+
+      <section class="page hidden" data-page="videowin">
+        <div class="page-head">
+          <h1>動画ウィンドウ</h1>
+          <p class="desc">動画ウィンドウの設定</p>
+        </div>
+        <label class="row">
+          <input type="checkbox" id="video_autoplay" />
+          <span>開いたとき自動で再生を開始する</span>
+        </label>
+        <label class="row">
+          <input type="checkbox" id="video_loop_default" />
+          <span>繰り返し再生を既定で ON にする</span>
+        </label>
+        <p class="hint">ウィンドウ内の ⟳ ボタン（または R キー）でいつでも切り替えられます。</p>
+        <label class="row">
+          <input type="checkbox" id="video_window_always_on_top" />
+          <span>動画ウィンドウをメインウィンドウの前に常に表示する</span>
+        </label>
+        <p class="hint">OFF にすると動画ウィンドウが独立し、メインウィンドウの背面に回せます。</p>
+        <div class="field">
+          <div class="field-label">シーク秒数（←→ キー / ショートカット「少し進む・戻る」）</div>
+          <div class="row">
+            <input type="number" id="video_seek_seconds" class="num-input" min="1" max="60" />
+            <span class="unit">秒</span>
+          </div>
+        </div>
+        <p class="hint">音量・ミュート状態と、ウィンドウの位置・サイズは自動で記憶されます。</p>
       </section>
     </main>
   </div>

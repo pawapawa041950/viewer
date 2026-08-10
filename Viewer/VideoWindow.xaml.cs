@@ -14,6 +14,9 @@ public partial class VideoWindow : Window
     private ResizeMode _prevResize;
     private bool _isFullscreen;
 
+    /// <summary>全画面表示中か。全画面中に閉じたときはサイズ設定を保存しないために使う。</summary>
+    public bool IsFullscreen => _isFullscreen;
+
     public VideoWindow()
     {
         InitializeComponent();

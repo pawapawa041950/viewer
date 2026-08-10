@@ -68,6 +68,22 @@
     { id: "viewer.zoom_in",          category: "画像ウィンドウ", name: "拡大",                      defaultShortcut: "",           defaultMouse: "Ctrl+ホイールアップ",  defaultGesture: "" },
     { id: "viewer.zoom_out",         category: "画像ウィンドウ", name: "縮小",                      defaultShortcut: "",           defaultMouse: "Ctrl+ホイールダウン",  defaultGesture: "" },
     { id: "viewer.zoom_reset",       category: "画像ウィンドウ", name: "ズームをリセット",          defaultShortcut: "",           defaultMouse: "Ctrl+中クリック",      defaultGesture: "" },
+
+    // ---- 動画ウィンドウ（仕様 §4.6） ----
+    { id: "video.play_pause",        category: "動画ウィンドウ", name: "再生 / 一時停止",           defaultShortcut: "Space",      defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.seek_forward",      category: "動画ウィンドウ", name: "少し進む",                  defaultShortcut: "ArrowRight", defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.seek_back",         category: "動画ウィンドウ", name: "少し戻る",                  defaultShortcut: "ArrowLeft",  defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.volume_up",         category: "動画ウィンドウ", name: "音量を上げる",              defaultShortcut: "ArrowUp",    defaultMouse: "ホイールアップ",        defaultGesture: "" },
+    { id: "video.volume_down",       category: "動画ウィンドウ", name: "音量を下げる",              defaultShortcut: "ArrowDown",  defaultMouse: "ホイールダウン",        defaultGesture: "" },
+    { id: "video.toggle_mute",       category: "動画ウィンドウ", name: "ミュート切替",              defaultShortcut: "M",          defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.toggle_loop",       category: "動画ウィンドウ", name: "繰り返し再生の切替",        defaultShortcut: "R",          defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.ab_repeat",         category: "動画ウィンドウ", name: "A-B リピート (A点→B点→解除)", defaultShortcut: "A",        defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.speed_up",          category: "動画ウィンドウ", name: "再生速度を上げる",          defaultShortcut: "+",          defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.speed_down",        category: "動画ウィンドウ", name: "再生速度を下げる",          defaultShortcut: "-",          defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.speed_reset",       category: "動画ウィンドウ", name: "再生速度をリセット",        defaultShortcut: "0",          defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.toggle_fullscreen", category: "動画ウィンドウ", name: "全画面切替",                defaultShortcut: "F",          defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.toggle_overlay",    category: "動画ウィンドウ", name: "詳細ペインの開閉",          defaultShortcut: "D",          defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.close",             category: "動画ウィンドウ", name: "ウィンドウを閉じる",        defaultShortcut: "Escape",     defaultMouse: "",                     defaultGesture: "" },
   ];
 
   const MOUSE_OPTIONS = [

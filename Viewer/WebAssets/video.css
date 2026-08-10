@@ -59,6 +59,24 @@ body { display: flex; flex-direction: row; }
 }
 .err button:hover { background: rgba(255, 255, 255, 0.4); }
 
+/* 一時表示ヒント（音量・再生速度など。viewer.css の .hint と同意匠） */
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: 64px; /* コントロールバーの上 */
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+.hint.show { opacity: 1; }
+
 /* 左上ボタン群（半透明・マウス移動時のみフェード表示。viewer.css の浮遊ボタンと同意匠） */
 .side-btns {
   position: absolute;

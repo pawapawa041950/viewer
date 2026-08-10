@@ -13,8 +13,32 @@
   const detailBtn = document.getElementById('detailBtn');
   const loopBtn = document.getElementById('loopBtn');
   const abBtn = document.getElementById('abBtn');
+  const hintEl = document.getElementById('hint');
 
-  let current = null; // { path }
+  let current = null;    // { path }
+  let seekSeconds = 5;   // 矢印キーのシーク秒数（設定・仕様 §9）
+
+  // ホストからの設定を反映（video_ready の初期値 / video_settings_changed のライブ変更）。
+  function applySettings(s, initial) {
+    if (!s) return;
+    if (typeof s.seek_seconds === 'number' && s.seek_seconds > 0) seekSeconds = s.seek_seconds;
+    vid.autoplay = s.autoplay !== false;
+    if (initial) {
+      vid.loop = !!s.loop_default;
+      loopBtn.classList.toggle('active', vid.loop);
+      if (typeof s.volume === 'number') vid.volume = Math.max(0, Math.min(1, s.volume));
+      vid.muted = !!s.muted;
+    }
+  }
+
+  // 一時表示ヒント（音量・再生速度などのフィードバック）。
+  let hintTimer = null;
+  function showHint(text) {
+    hintEl.textContent = text;
+    hintEl.classList.add('show');
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => hintEl.classList.remove('show'), 1200);
+  }
 
   function baseName(p) { return (p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop(); }
   // 動画本体の配信 URL（t 無し＝ホストが Range 対応でストリーミング配信する）。
@@ -135,26 +159,90 @@
     if (abA !== null && abB !== null) { vid.currentTime = abA; vid.play().catch(() => {}); }
   });
 
-  // ---- キー操作（最小限）：D=詳細ペイン / R=ループ / A=A-B / Escape=閉じる ----
-  window.addEventListener('keydown', (e) => {
-    if (e.ctrlKey || e.altKey || e.metaKey) return;
-    if (e.key === 'd' || e.key === 'D') { e.preventDefault(); toggleOverlay(); }
-    else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); toggleLoop(); }
-    else if (e.key === 'a' || e.key === 'A') { e.preventDefault(); cycleAb(); }
-    else if (e.key === 'Escape') {
-      // <video> の全画面中は既定動作（全画面解除）に任せる。
-      if (document.fullscreenElement) return;
-      e.preventDefault();
-      invoke('close_video').catch(() => {});
-    }
+  // ---- 再生操作（ショートカットから呼ばれるアクション群） ----
+  function playPause() {
+    if (vid.paused) vid.play().catch(() => {}); else vid.pause();
+  }
+  function seekBy(sec) {
+    const max = isFinite(vid.duration) ? vid.duration : Infinity;
+    vid.currentTime = Math.max(0, Math.min(max, vid.currentTime + sec));
+  }
+  function setVolume(v) {
+    vid.muted = false;
+    vid.volume = Math.max(0, Math.min(1, v));
+    showHint('音量 ' + Math.round(vid.volume * 100) + '%');
+  }
+  function toggleMute() {
+    vid.muted = !vid.muted;
+    showHint(vid.muted ? 'ミュート' : 'ミュート解除');
+  }
+  function setRate(r) {
+    vid.playbackRate = Math.max(0.25, Math.min(4, r));
+    showHint('再生速度 ' + vid.playbackRate + 'x');
+  }
+  function toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else vid.requestFullscreen().catch(() => {}); // ホストがウィンドウを追随（ContainsFullScreenElementChanged）
+  }
+
+  // 音量・ミュートの記憶（設定 UI 無しの自動保存。連続変更はデバウンス）。
+  let volSaveTimer = null;
+  vid.addEventListener('volumechange', () => {
+    clearTimeout(volSaveTimer);
+    volSaveTimer = setTimeout(() => {
+      invoke('set_video_state', { volume: vid.volume, muted: vid.muted }).catch(() => {});
+    }, 500);
   });
 
-  // ---- ホストからの通知（ウィンドウ再利用時） ----
-  const ev = window.__TAURI__ && window.__TAURI__.event;
-  if (ev) ev.listen('load_video', (e) => { const p = e && e.payload; if (p && p.path) load(p.path); });
+  // ---- ショートカット（カタログ「動画ウィンドウ」・設定ウィンドウで変更可能・仕様 §8） ----
+  const CAT = '動画ウィンドウ';
+  if (window.ShortcutDispatch) {
+    ShortcutDispatch.registerAll({
+      'video.play_pause': () => playPause(),
+      'video.seek_forward': () => seekBy(seekSeconds),
+      'video.seek_back': () => seekBy(-seekSeconds),
+      'video.volume_up': () => setVolume(vid.volume + 0.05),
+      'video.volume_down': () => setVolume(vid.volume - 0.05),
+      'video.toggle_mute': () => toggleMute(),
+      'video.toggle_loop': () => toggleLoop(),
+      'video.ab_repeat': () => cycleAb(),
+      'video.speed_up': () => setRate(vid.playbackRate + 0.25),
+      'video.speed_down': () => setRate(vid.playbackRate - 0.25),
+      'video.speed_reset': () => setRate(1),
+      'video.toggle_fullscreen': () => toggleFullscreen(),
+      'video.toggle_overlay': () => toggleOverlay(),
+      'video.close': () => {
+        // 全画面中は閉じずに全画面解除（画像ウィンドウの exit_fullscreen と同じ流儀）。
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        else invoke('close_video').catch(() => {});
+      },
+    });
+    ShortcutDispatch.load().catch(() => {});
+  }
+  window.addEventListener('keydown', (e) => {
+    const D = window.ShortcutDispatch;
+    if (D && D.dispatchKey(CAT, e)) { e.preventDefault(); return; }
+  });
+  // マウス割り当て（既定はホイール=音量）。クリック/ダブルクリックは <video> 標準コントロールの
+  // ネイティブ動作（再生トグル・全画面）と重複するため既定では割り当てない。
+  document.getElementById('stage').addEventListener('wheel', (e) => {
+    const D = window.ShortcutDispatch;
+    if (D && D.dispatchMouse(CAT, e, 'wheel')) e.preventDefault();
+  }, { passive: false });
 
-  // ---- 起動：ホストへ初期データを要求 ----
+  // ---- ホストからの通知 ----
+  const ev = window.__TAURI__ && window.__TAURI__.event;
+  if (ev) {
+    ev.listen('load_video', (e) => { const p = e && e.payload; if (p && p.path) load(p.path); });
+    ev.listen('video_settings_changed', (e) => applySettings(e && e.payload, false));
+  }
+
+  // ---- 起動：ホストへ初期データ（パス＋設定）を要求 ----
   invoke('video_ready')
-    .then((data) => { if (data && data.path) load(data.path); })
+    .then((data) => {
+      if (!data) return;
+      applySettings(data, true);
+      if (data.path) load(data.path);
+    })
     .catch(() => {});
 })();

@@ -57,6 +57,19 @@ public sealed class AppSettings
     public bool LoopNavigation { get; set; } = true;        // 末尾の画像から最初の画像に移動する（循環）
     public int PreloadCount { get; set; } = 3;              // 画像前後の事前読み枚数(0-50)
 
+    // 動画ウィンドウ（仕様 §4.6）
+    public double VideoWindowWidth { get; set; } = 900;
+    public double VideoWindowHeight { get; set; } = 700;
+    public double? VideoWindowLeft { get; set; }
+    public double? VideoWindowTop { get; set; }
+    public bool VideoWindowMaximized { get; set; }
+    public bool VideoWindowAlwaysOnTop { get; set; } = true; // メインウィンドウの前に常に表示
+    public bool VideoAutoplay { get; set; } = true;          // 開いたとき自動で再生を開始
+    public bool VideoLoopDefault { get; set; }               // 繰り返し再生を既定で ON
+    public int VideoSeekSeconds { get; set; } = 5;           // 矢印キーのシーク秒数(1-60)
+    public double VideoVolume { get; set; } = 1.0;           // 音量（自動記憶）
+    public bool VideoMuted { get; set; }                     // ミュート状態（自動記憶）
+
     // ファイル一覧：サムネイル表示（重い場合に OFF にできる）
     public bool FolderThumbnails { get; set; } = true;      // フォルダのサムネイル（直下1枚目）
     public bool ArchiveThumbnails { get; set; } = true;     // 圧縮ファイルのサムネイル（中の1枚目）

@@ -36,11 +36,16 @@ public static class AiImageMetadataService
         try
         {
             // 動画はストリームでコンテナを走査する（GB 級ファイルの全読みを避ける）。
-            // MP4/MOV 以外の動画（mkv 等）は ftyp を持たず null になるだけ（当面未対応）。
+            // シグネチャで MP4/MOV (ISO-BMFF) と WebM/MKV (EBML) を判別する。
             if (FileTypes.IsVideo(path))
             {
                 using var fs = File.OpenRead(path);
-                return ExtractFromMp4(fs);
+                var head = new byte[4];
+                if (fs.Read(head, 0, 4) < 4) return null;
+                fs.Position = 0;
+                if (head[0] == 0x1A && head[1] == 0x45 && head[2] == 0xDF && head[3] == 0xA3)
+                    return ExtractFromWebm(fs);
+                return ExtractFromMp4(fs); // ftyp チェックは ExtractFromMp4 内
             }
             return ExtractFromBytes(File.ReadAllBytes(path));
         }
@@ -74,6 +79,10 @@ public static class AiImageMetadataService
             // MP4/MOV: [size] "ftyp"（書庫内バイト列などから来た場合）
             if (data[4] == 'f' && data[5] == 't' && data[6] == 'y' && data[7] == 'p')
                 return ExtractFromMp4(new MemoryStream(data));
+
+            // WebM/MKV (EBML): 1A 45 DF A3
+            if (data[0] == 0x1A && data[1] == 0x45 && data[2] == 0xDF && data[3] == 0xA3)
+                return ExtractFromWebm(new MemoryStream(data));
 
             return null;
         }
@@ -186,6 +195,21 @@ public static class AiImageMetadataService
         {
             var meta = TryParseComfyPrompt(comfyPrompt, "PNG", fileSize, w, h);
             if (meta is { HasAiData: true }) return meta;
+        }
+
+        // ---- 戦略 2.5: prompt 以外のチャンク (Comment / UserComment / Description 等) に ComfyUI グラフが
+        //      「生 JSON」「{"prompt": ...} ラッパー」「Prompt: {...} プレフィックス」で入っているケース。
+        //      サードパーティの保存ノード / ffmpeg 系ツールがこの書き方をする (動画側の対策と同じパターン)。
+        if (!chunks.ContainsKey("prompt"))
+        {
+            foreach (var (ck, cv) in chunks)
+            {
+                if (ck.Equals("parameters", StringComparison.OrdinalIgnoreCase)) continue; // SD infotext は戦略 1 の領分
+                var g = TryExtractComfyGraphJson(UnLatin1ToUtf8(cv));
+                if (g is null) continue;
+                var meta = TryParseComfyPrompt(g, "PNG", fileSize, w, h);
+                if (meta is { HasAiData: true }) return meta;
+            }
         }
 
         // ---- 戦略 3: NovelAI tEXt メタ (Software=NovelAI + Comment JSON / Description) ----
@@ -688,6 +712,17 @@ public static class AiImageMetadataService
             if (!string.IsNullOrEmpty(uc) && IsSDWebUIInfotext(uc!))
                 return BuildResult(uc, format, fileSize, width, height);
 
+            // 3.5) UserComment に ComfyUI グラフ (生 JSON / {"prompt": ...} ラッパー) が入っているケース。
+            if (!string.IsNullOrEmpty(uc))
+            {
+                var g = TryExtractComfyGraphJson(uc);
+                if (g is not null)
+                {
+                    var meta = TryParseComfyPrompt(g, format, fileSize, width, height);
+                    if (meta is { HasAiData: true }) return meta;
+                }
+            }
+
             // 4) AI 生成として解釈できなかったが EXIF 自体はある。
             //    まず AI 由来の署名 (ComfyUI プレフィックス / 既知ツール名 / infotext 断片) を探し、
             //    見つかればラベル付きの部分結果、無ければ撮影機材等の一般メタデータとして公開
@@ -818,7 +853,69 @@ public static class AiImageMetadataService
             var meta = TryParseComfyPrompt(json, format, fileSize, width, height);
             if (meta is { HasAiData: true }) return meta;
         }
+
+        // その他の ASCII タグも走査: サードパーティの保存ノードは XPComment / Software 等の別タグに
+        // 生グラフ JSON や {"prompt": ...} ラッパーで書くことがある (動画側の対策と同じパターン)。
+        foreach (var raw in tags.Values)
+        {
+            var g = TryExtractComfyGraphJson(raw);
+            if (g is null) continue;
+            var meta = TryParseComfyPrompt(g, format, fileSize, width, height);
+            if (meta is { HasAiData: true }) return meta;
+        }
         return null;
+    }
+
+    /// <summary>任意のメタデータ値から ComfyUI グラフ JSON を取り出す共通ヘルパ (画像・動画共用)。
+    /// 対応形式:
+    ///   - 生のグラフ JSON ({nodeId: {class_type: ...}})
+    ///   - JSON ラッパー ({"prompt": "&lt;グラフ文字列&gt;"} / {"prompt": {…}})
+    ///   - "Prompt: {...}" のようなプレフィックス付き (最初の '{' から読む)
+    /// 該当しなければ null。</summary>
+    private static string? TryExtractComfyGraphJson(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        int brace = value.IndexOf('{');
+        if (brace < 0) return null;
+        var json = value.Substring(brace);
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(SanitizeJsonNonStandardLiterals(json));
+            var root = doc.RootElement;
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+            if (LooksLikeComfyGraphJson(root)) return json;
+            if (root.TryGetProperty("prompt", out var p))
+            {
+                // ラッパーの中身がグラフかどうかは呼び出し先の TryParseComfyPrompt が判定する
+                // (NovelAI Comment JSON の "prompt" (= ただのテキスト) はそこで弾かれる)。
+                return p.ValueKind switch
+                {
+                    System.Text.Json.JsonValueKind.String => p.GetString(),
+                    System.Text.Json.JsonValueKind.Object => p.GetRawText(),
+                    _ => null,
+                };
+            }
+            return null;
+        }
+        catch
+        {
+            return null; // JSON として読めない値 (ただのコメント等)
+        }
+    }
+
+    /// <summary>JSON オブジェクトが ComfyUI API グラフ ({nodeId: {class_type: ...}}) に見えるか。
+    /// 先頭から数プロパティだけ確認する軽量判定。</summary>
+    private static bool LooksLikeComfyGraphJson(System.Text.Json.JsonElement root)
+    {
+        var inspected = 0;
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (prop.Value.ValueKind == System.Text.Json.JsonValueKind.Object
+                && prop.Value.TryGetProperty("class_type", out _))
+                return true;
+            if (++inspected >= 20) break;
+        }
+        return false;
     }
 
     // -----------------------------------------------------------------
@@ -826,6 +923,8 @@ public static class AiImageMetadataService
     //
     // ComfyUI は動画保存時、QuickTime メタデータ（moov/udta/meta の keys + ilst、
     // namespace "mdta"）へ key="prompt"（API グラフ JSON）等を書き込む。
+    // ffmpeg 系ツール（VideoHelperSuite 等）は iTunes 形式（©cmt / ---- アトム）に
+    // {"prompt": ..., "workflow": ...} の JSON ラッパーで書くため、そちらも展開する。
     // moov ボックスだけを読み、mdat（映像本体）はシークで飛ばす＝ファイル全読みしない
     // （動画は GB 級になり得るため。Extract() が動画拡張子をここへ振り分ける）。
     // -----------------------------------------------------------------
@@ -885,11 +984,52 @@ public static class AiImageMetadataService
             }
         }
 
+        return BuildVideoResult(kv, "MP4", fileSize, w, h);
+    }
+
+    /// <summary>動画コンテナから集めたメタキー辞書を共通解釈する (MP4 / WebM 共用)。
+    /// ComfyUI の key="prompt" (API グラフ JSON) を画像と同じパーサで解釈し、
+    /// 解釈不能でも署名があれば部分ラベル、無ければ一般メタデータのみで返す。</summary>
+    private static AiImageMetadata BuildVideoResult(
+        Dictionary<string, string> kv, string format, long fileSize, int w, int h)
+    {
+        // ffmpeg / VideoHelperSuite 系は comment 等の汎用キー 1 個に
+        // {"prompt": "<グラフJSON文字列>", "workflow": "..."} という JSON ラッパーで包んで書くことがある。
+        // また生のグラフ JSON をそのままコメントに書くツールもある。どのキーに入っていても展開する。
+        UnwrapNestedVideoMetadata(kv);
+
+        // StringRecord 系ノードが実行時テキストを記録する "recorded_texts" ({"prompt": "...", ...})。
+        // LLM 生成プロンプトのような「グラフを辿っても静的には得られない実行時確定値」の正本なので、
+        // グラフ解析で positive/negative が取れなかったときの補完に使う。
+        var (recordedPositive, recordedNegative) = ExtractRecordedTexts(kv);
+
         // ---- ComfyUI: key="prompt"（API グラフ JSON）を画像と同じパーサで解釈 ----
         if (kv.TryGetValue("prompt", out var comfyPrompt))
         {
-            var meta = TryParseComfyPrompt(comfyPrompt, "MP4", fileSize, w, h);
-            if (meta is { HasAiData: true }) return meta;
+            var meta = TryParseComfyPrompt(comfyPrompt, format, fileSize, w, h);
+            if (meta is { HasAiData: true })
+            {
+                // グラフから positive/negative が静的に取れないワークフロー (LLM 実行時生成等) は
+                // recorded_texts の実行時記録で補完する。
+                if (string.IsNullOrEmpty(meta.Positive) && !string.IsNullOrEmpty(recordedPositive))
+                    meta = meta with { Positive = recordedPositive };
+                if (string.IsNullOrEmpty(meta.Negative) && !string.IsNullOrEmpty(recordedNegative))
+                    meta = meta with { Negative = recordedNegative };
+                return meta;
+            }
+        }
+
+        // グラフが無い / 解釈不能でも recorded_texts に実行時プロンプトが残っていれば ComfyUI として返す。
+        if (!string.IsNullOrEmpty(recordedPositive))
+        {
+            var parameters = new Dictionary<string, string>(StringComparer.Ordinal) { ["Generator"] = "ComfyUI" };
+            if (w > 0 && h > 0) parameters["Size"] = $"{w}x{h}";
+            return new AiImageMetadata
+            {
+                Format = format, FileSize = fileSize, Width = w, Height = h,
+                Positive = recordedPositive, Negative = recordedNegative,
+                Generator = "ComfyUI", Parameters = parameters,
+            };
         }
 
         // 署名（prompt / workflow キー）はあるが JSON を解釈できなかった場合は部分結果。
@@ -897,7 +1037,7 @@ public static class AiImageMetadataService
         {
             var other = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var (k, v) in kv) AddGeneralMeta(other, k, v);
-            return BuildPartialAiResult("ComfyUI", other, "MP4", fileSize, w, h);
+            return BuildPartialAiResult("ComfyUI", other, format, fileSize, w, h);
         }
 
         // AI 由来でなくても、取れたキー（encoder 等）は一般メタデータとして公開（仕様 §6）。
@@ -905,9 +1045,93 @@ public static class AiImageMetadataService
         foreach (var (k, v) in kv) AddGeneralMeta(otherMeta, k, v);
         return new AiImageMetadata
         {
-            Format = "MP4", FileSize = fileSize, Width = w, Height = h,
+            Format = format, FileSize = fileSize, Width = w, Height = h,
             OtherMetadata = otherMeta,
         };
+    }
+
+    /// <summary>kv のどれかの値が「JSON ラッパー ({"prompt": ..., "workflow": ...})」または
+    /// 「生の ComfyUI グラフ JSON」なら、kv["prompt"] / kv["workflow"] へ昇格させる。
+    /// キー名は問わない (MP4 ©cmt="cmt" / "description" 等、書き手によりバラバラなため)。
+    /// 既に kv["prompt"] があれば何もしない (= QuickTime keys 形式の正規経路を優先)。</summary>
+    private static void UnwrapNestedVideoMetadata(Dictionary<string, string> kv)
+    {
+        if (kv.ContainsKey("prompt")) return;
+        foreach (var (k, v) in kv.ToList())
+        {
+            if (string.IsNullOrEmpty(v) || !v.TrimStart().StartsWith("{", StringComparison.Ordinal)) continue;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(SanitizeJsonNonStandardLiterals(v));
+                var root = doc.RootElement;
+                if (root.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+
+                // (a) ラッパー形式: {"prompt": <文字列 or オブジェクト>, "workflow": ...}
+                if (root.TryGetProperty("prompt", out var p))
+                {
+                    var ps = p.ValueKind switch
+                    {
+                        System.Text.Json.JsonValueKind.String => p.GetString(),
+                        System.Text.Json.JsonValueKind.Object => p.GetRawText(),
+                        _ => null,
+                    };
+                    if (!string.IsNullOrEmpty(ps))
+                    {
+                        kv["prompt"] = ps!;
+                        if (!kv.ContainsKey("workflow") && root.TryGetProperty("workflow", out var wf))
+                        {
+                            var ws = wf.ValueKind switch
+                            {
+                                System.Text.Json.JsonValueKind.String => wf.GetString(),
+                                System.Text.Json.JsonValueKind.Object => wf.GetRawText(),
+                                _ => null,
+                            };
+                            if (!string.IsNullOrEmpty(ws)) kv["workflow"] = ws!;
+                        }
+                        return;
+                    }
+                }
+
+                // (b) 値そのものが生のグラフ ({nodeId: {class_type, ...}, ...}) の形式
+                if (LooksLikeComfyGraphJson(root))
+                {
+                    kv["prompt"] = v;
+                    return;
+                }
+            }
+            catch
+            {
+                // JSON として読めない値 (ただのコメント文字列等) は無視して次のキーへ
+            }
+        }
+    }
+
+    /// <summary>"recorded_texts" キー ({"prompt": "...", "negative": "...", ...} 形式) から
+    /// 実行時に記録されたプロンプト文字列を取り出す。キー名は "negative" を含めば負側、
+    /// それ以外 ("prompt" / "positive" 等) は正側として最初の非空値を採用する。無ければ (null, null)。</summary>
+    private static (string? Positive, string? Negative) ExtractRecordedTexts(Dictionary<string, string> kv)
+    {
+        if (!kv.TryGetValue("recorded_texts", out var json) || string.IsNullOrEmpty(json)) return (null, null);
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(SanitizeJsonNonStandardLiterals(json));
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return (null, null);
+            string? pos = null, neg = null;
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.Value.ValueKind != System.Text.Json.JsonValueKind.String) continue;
+                var v = prop.Value.GetString();
+                if (string.IsNullOrEmpty(v)) continue;
+                if (prop.Name.Contains("negative", StringComparison.OrdinalIgnoreCase)) neg ??= v;
+                else                                                                    pos ??= v;
+            }
+            return (pos, neg);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AiVideoMeta] recorded_texts parse failed: {ex.Message}");
+            return (null, null);
+        }
     }
 
     /// <summary>start..end の連続ボックスを列挙。type は ASCII 4 文字、code は同 4 バイトの
@@ -973,7 +1197,15 @@ public static class AiImageMetadataService
             }
             else if (typ == "ilst") { ilstStart = s2; ilstLen = l2; }
         }
-        if (ilstStart < 0 || keys.Count == 0) return;
+        if (ilstStart < 0) return;
+
+        // keys ボックスが無い ilst は iTunes 形式（©cmt / ---- アトム）として読む
+        // （ffmpeg の mp4 muxer 等。ComfyUI VideoHelperSuite / SaveVideo(旧) がこの形式で書く）。
+        if (keys.Count == 0)
+        {
+            ReadItunesIlst(b, ilstStart, ilstLen, kv);
+            return;
+        }
 
         foreach (var (_, code, s2, l2) in Mp4Boxes(b, ilstStart, ilstStart + ilstLen))
         {
@@ -988,6 +1220,221 @@ public static class AiImageMetadataService
                 if (!kv.ContainsKey(key)) kv[key] = Encoding.UTF8.GetString(b, s3 + 8, l3 - 8);
             }
         }
+    }
+
+    /// <summary>iTunes 形式の ilst を読む。子アトムは 2 種:
+    ///   - ©xxx (先頭バイト 0xA9): 定型キー (©cmt=comment / ©too=encoder 等)。残り 3 文字をキー名にする。
+    ///   - "----": カスタムキー。mean(名前空間)/name(キー名)/data(値) の子ボックスを持つ。
+    /// 値は data ボックス (type indicator=1 = UTF-8 テキスト) から取る。</summary>
+    private static void ReadItunesIlst(byte[] b, int start, int len, Dictionary<string, string> kv)
+    {
+        foreach (var (typ, code, s2, l2) in Mp4Boxes(b, start, start + len))
+        {
+            string? key = null;
+            if (typ == "----")
+            {
+                foreach (var (t3, _, s3, l3) in Mp4Boxes(b, s2, s2 + l2))
+                {
+                    // name: ver/flags(4) + キー名
+                    if (t3 == "name" && l3 > 4)
+                        key = Encoding.UTF8.GetString(b, s3 + 4, l3 - 4);
+                }
+            }
+            else if ((code >> 24) == 0xA9)
+            {
+                // ©cmt → "cmt" のように残り 3 文字をキーとして使う（かぶりは ContainsKey 側で許容）
+                key = new string(new[] { (char)((code >> 16) & 0xFF), (char)((code >> 8) & 0xFF), (char)(code & 0xFF) });
+            }
+            if (key is null) continue;
+
+            foreach (var (dt, _, s3, l3) in Mp4Boxes(b, s2, s2 + l2))
+            {
+                if (dt != "data" || l3 < 8) continue;
+                if (BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(s3, 4)) != 1) continue; // UTF-8 テキストのみ
+                if (!kv.ContainsKey(key)) kv[key] = Encoding.UTF8.GetString(b, s3 + 8, l3 - 8);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // WebM / MKV (EBML) — ComfyUI SaveWEBM 等
+    //
+    // libav 系エンコーダはコンテナメタデータを Matroska の Tags 要素
+    // (Segment > Tags > Tag > SimpleTag { TagName, TagString }) に書き出す。
+    // ComfyUI SaveWEBM も prompt / workflow をこの形で埋める。
+    // Segment 直下を走査し、必要な master 要素 (Tags / Tracks) だけ潜って
+    // Cluster (映像本体) はサイズでスキップする = 全読みしない。
+    // -----------------------------------------------------------------
+
+    private const uint EbmlSegment    = 0x18538067;
+    private const uint EbmlTags       = 0x1254C367;
+    private const uint EbmlTag        = 0x7373;
+    private const uint EbmlSimpleTag  = 0x67C8;
+    private const uint EbmlTagName    = 0x45A3;
+    private const uint EbmlTagString  = 0x4487;
+    private const uint EbmlTracks     = 0x1654AE6B;
+    private const uint EbmlTrackEntry = 0xAE;
+    private const uint EbmlVideo      = 0xE0;
+    private const uint EbmlPixelW     = 0xB0;
+    private const uint EbmlPixelH     = 0xBA;
+
+    private static AiImageMetadata? ExtractFromWebm(Stream s)
+    {
+        long fileSize = s.Length;
+        var kv = new Dictionary<string, string>(StringComparer.Ordinal);
+        int w = 0, h = 0;
+
+        // トップレベル: EBML ヘッダ → Segment。Segment の中だけ走査する。
+        long pos = 0;
+        while (pos < fileSize)
+        {
+            s.Position = pos;
+            if (!TryReadEbmlElement(s, fileSize, out var id, out var size, out var bodyStart)) break;
+            if (id == EbmlSegment)
+            {
+                var segEnd = size < 0 ? fileSize : Math.Min(fileSize, bodyStart + size);
+                ScanSegmentChildren(s, bodyStart, segEnd, kv, ref w, ref h);
+                break;
+            }
+            if (size < 0) break; // Segment 以外で不定長は想定外
+            pos = bodyStart + size;
+        }
+
+        if (kv.Count == 0 && w == 0 && h == 0) return null; // Matroska として何も取れなかった
+        return BuildVideoResult(kv, "WebM", fileSize, w, h);
+    }
+
+    /// <summary>Segment 直下の子要素を走査し、Tags と Tracks だけ読み込む (他はスキップ)。</summary>
+    private static void ScanSegmentChildren(
+        Stream s, long start, long end, Dictionary<string, string> kv, ref int w, ref int h)
+    {
+        long pos = start;
+        while (pos < end)
+        {
+            s.Position = pos;
+            if (!TryReadEbmlElement(s, end, out var id, out var size, out var bodyStart)) break;
+            if (size < 0) break; // Segment 内の不定長 (ライブ配信形) は非対応
+            if (id == EbmlTags && size <= 16 * 1024 * 1024)
+            {
+                var body = new byte[size];
+                s.Position = bodyStart;
+                if (ReadExact(s, body, (int)size)) ParseEbmlTags(body, kv);
+            }
+            else if (id == EbmlTracks && size <= 4 * 1024 * 1024)
+            {
+                var body = new byte[size];
+                s.Position = bodyStart;
+                if (ReadExact(s, body, (int)size)) ParseEbmlTracks(body, ref w, ref h);
+            }
+            pos = bodyStart + size;
+        }
+    }
+
+    /// <summary>Tags バッファから SimpleTag { TagName, TagString } を kv に集める。</summary>
+    private static void ParseEbmlTags(byte[] b, Dictionary<string, string> kv)
+    {
+        ForEachEbml(b, 0, b.Length, (id, s2, l2) =>
+        {
+            if (id != EbmlTag) return;
+            ForEachEbml(b, s2, s2 + l2, (id2, s3, l3) =>
+            {
+                if (id2 != EbmlSimpleTag) return;
+                string? name = null, value = null;
+                ForEachEbml(b, s3, s3 + l3, (id3, s4, l4) =>
+                {
+                    if (id3 == EbmlTagName)   name  = Encoding.UTF8.GetString(b, s4, l4);
+                    if (id3 == EbmlTagString) value = Encoding.UTF8.GetString(b, s4, l4);
+                });
+                if (name is not null && value is not null && !kv.ContainsKey(name)) kv[name] = value;
+            });
+        });
+    }
+
+    /// <summary>Tracks バッファから映像トラックの PixelWidth / PixelHeight を読む (最大値採用)。</summary>
+    private static void ParseEbmlTracks(byte[] b, ref int w, ref int h)
+    {
+        int tw = 0, th = 0;
+        ForEachEbml(b, 0, b.Length, (id, s2, l2) =>
+        {
+            if (id != EbmlTrackEntry) return;
+            ForEachEbml(b, s2, s2 + l2, (id2, s3, l3) =>
+            {
+                if (id2 != EbmlVideo) return;
+                ForEachEbml(b, s3, s3 + l3, (id3, s4, l4) =>
+                {
+                    if (id3 == EbmlPixelW) tw = Math.Max(tw, (int)ReadEbmlUInt(b, s4, l4));
+                    if (id3 == EbmlPixelH) th = Math.Max(th, (int)ReadEbmlUInt(b, s4, l4));
+                });
+            });
+        });
+        if (tw > w) w = tw;
+        if (th > h) h = th;
+    }
+
+    /// <summary>バッファ内の EBML 子要素を列挙してコールバックする (不正・不定長で打ち切り)。</summary>
+    private static void ForEachEbml(byte[] b, int start, int end, Action<uint, int, int> visit)
+    {
+        int pos = start;
+        while (pos < end)
+        {
+            if (!TryReadEbmlIdSize(b, pos, end, out var id, out var size, out var bodyStart)) return;
+            if (size < 0 || bodyStart + size > end) return;
+            visit(id, bodyStart, (int)size);
+            pos = (int)(bodyStart + size);
+        }
+    }
+
+    /// <summary>EBML 符号なし整数値 (ビッグエンディアン可変長) を読む。</summary>
+    private static ulong ReadEbmlUInt(byte[] b, int start, int len)
+    {
+        ulong v = 0;
+        for (int i = 0; i < len && i < 8; i++) v = (v << 8) | b[start + i];
+        return v;
+    }
+
+    /// <summary>ストリームから EBML 要素ヘッダ (ID + サイズ) を読む。size=-1 は不定長。</summary>
+    private static bool TryReadEbmlElement(Stream s, long end, out uint id, out long size, out long bodyStart)
+    {
+        id = 0; size = 0; bodyStart = 0;
+        var buf = new byte[12];
+        long pos = s.Position;
+        int got = s.Read(buf, 0, (int)Math.Min(12, end - pos));
+        if (got < 2) return false;
+        if (!TryReadEbmlIdSize(buf, 0, got, out id, out size, out var bodyOff)) return false;
+        bodyStart = pos + bodyOff;
+        return true;
+    }
+
+    /// <summary>バッファから EBML の ID (1〜4 バイト) とサイズ (1〜8 バイト可変長) を読む。
+    /// サイズが「全ビット 1」(未知長) のときは size=-1 を返す。</summary>
+    private static bool TryReadEbmlIdSize(byte[] b, int pos, int end, out uint id, out long size, out int bodyStart)
+    {
+        id = 0; size = 0; bodyStart = 0;
+        if (pos >= end) return false;
+
+        // ID: 先頭バイトの最上位ビット位置で長さが決まる (VINT だがマーカービットは保持したまま使う)。
+        byte first = b[pos];
+        int idLen = first >= 0x80 ? 1 : first >= 0x40 ? 2 : first >= 0x20 ? 3 : first >= 0x10 ? 4 : 0;
+        if (idLen == 0 || pos + idLen > end) return false;
+        for (int i = 0; i < idLen; i++) id = (id << 8) | b[pos + i];
+
+        // サイズ: VINT (マーカービットを除いた値)。
+        int sp = pos + idLen;
+        if (sp >= end) return false;
+        byte sf = b[sp];
+        int sLen = sf >= 0x80 ? 1 : sf >= 0x40 ? 2 : sf >= 0x20 ? 3 : sf >= 0x10 ? 4
+                 : sf >= 0x08 ? 5 : sf >= 0x04 ? 6 : sf >= 0x02 ? 7 : sf >= 0x01 ? 8 : 0;
+        if (sLen == 0 || sp + sLen > end) return false;
+        long v = sf & ((1 << (8 - sLen)) - 1);
+        bool allOnes = v == ((1 << (8 - sLen)) - 1);
+        for (int i = 1; i < sLen; i++)
+        {
+            v = (v << 8) | b[sp + i];
+            if (b[sp + i] != 0xFF) allOnes = false;
+        }
+        size = allOnes ? -1 : v; // 全ビット 1 = 未知長 (ライブ/未確定 Segment)
+        bodyStart = sp + sLen;
+        return true;
     }
 
     private static bool LooksLikeMp4Box(byte[] b, int off, int end)
@@ -1384,6 +1831,56 @@ public static class AiImageMetadataService
         }
         if (texts.Count > 0) return string.Join("\n", texts);
 
+        // 既知フィールドで取れない場合の汎用フォールバック: フィールド名に "text" / "prompt" を含む入力を
+        // テキスト候補として扱う (カスタムノードの editable_text_widget / populated_text / wildcard_text 等、
+        // 名前が非標準でも意味はフィールド名に現れることが多い)。
+        //   - "negative" を名前に含むものは除外 (= positive 追跡経路への negative 汚染防止。負側は専用経路で辿る)
+        //   - モデルファイル名っぽい値 (.safetensors 等) は除外
+        foreach (var prop in inputs.EnumerateObject())
+        {
+            var nm = prop.Name.ToLowerInvariant();
+            if (!(nm.Contains("text") || nm.Contains("prompt"))) continue;
+            if (nm.Contains("negative")) continue;
+            var p = prop.Value;
+            if (p.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var s = p.GetString();
+                if (!string.IsNullOrEmpty(s) && !LooksLikeAssetFileName(s!) && !texts.Contains(s!)) texts.Add(s!);
+            }
+            else if (p.ValueKind == System.Text.Json.JsonValueKind.Array && p.GetArrayLength() >= 1
+                     && p[0].ValueKind == System.Text.Json.JsonValueKind.String
+                     && root.TryGetProperty(p[0].GetString()!, out var refNode2))
+            {
+                var s = ExtractTextFromComfyNode(refNode2, root, depth + 1);
+                if (!string.IsNullOrEmpty(s) && !texts.Contains(s!)) texts.Add(s!);
+            }
+        }
+        if (texts.Count > 0) return string.Join("\n", texts);
+
+        // スイッチノード (ComfySwitchNode 等: on_true / on_false + switch 入力): 実行された枝へ中継する。
+        // switch の真偽はリテラル or 参照 (PrimitiveBoolean 等) を辿って解決し、判定できた場合はその枝のみ、
+        // 判定不能なら on_false → on_true の順に両方試す (先に取れた方)。
+        // これが無いと BasicGuider → switch → MiniMax 系のようなグラフでプロンプト追跡が switch で途切れる。
+        if (inputs.TryGetProperty("on_true", out _) || inputs.TryGetProperty("on_false", out _))
+        {
+            var sw = ResolveComfySwitchState(inputs, root);
+            var branches = sw switch
+            {
+                true  => new[] { "on_true" },
+                false => new[] { "on_false" },
+                null  => new[] { "on_false", "on_true" },
+            };
+            foreach (var f in branches)
+            {
+                if (!inputs.TryGetProperty(f, out var bv)) continue;
+                if (bv.ValueKind != System.Text.Json.JsonValueKind.Array || bv.GetArrayLength() < 1) continue;
+                if (bv[0].ValueKind != System.Text.Json.JsonValueKind.String) continue;
+                if (!root.TryGetProperty(bv[0].GetString()!, out var branchNode)) continue;
+                var s = ExtractTextFromComfyNode(branchNode, root, depth + 1);
+                if (!string.IsNullOrEmpty(s)) return s;
+            }
+        }
+
         // ConditioningCombine / ConditioningConcat 等は conditioning_1 / conditioning_2 / from / to を持つので合成する。
         var combined = new List<string>();
         foreach (var prop in inputs.EnumerateObject())
@@ -1397,6 +1894,49 @@ public static class AiImageMetadataService
             if (!string.IsNullOrEmpty(s) && !combined.Contains(s)) combined.Add(s);
         }
         return combined.Count > 0 ? string.Join("\n", combined) : null;
+    }
+
+    /// <summary>値がモデル/アセットのファイル名に見えるか (= テキストフォールバックの誤検出防止)。</summary>
+    private static bool LooksLikeAssetFileName(string s)
+        => s.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase)
+        || s.EndsWith(".sft",  StringComparison.OrdinalIgnoreCase)
+        || s.EndsWith(".ckpt", StringComparison.OrdinalIgnoreCase)
+        || s.EndsWith(".pt",   StringComparison.OrdinalIgnoreCase)
+        || s.EndsWith(".pth",  StringComparison.OrdinalIgnoreCase)
+        || s.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase)
+        || s.EndsWith(".bin",  StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>スイッチノードの <c>switch</c> 入力の真偽を解決する。
+    /// リテラル (bool / "True"/"False" 文字列) はそのまま、参照 ([nodeId, outIdx]) なら参照先の
+    /// <c>value</c> / <c>boolean</c> フィールド (PrimitiveBoolean 等) を最大 4 ホップ辿る。
+    /// 判定できなければ null (= 呼び出し側は両枝を試す)。</summary>
+    private static bool? ResolveComfySwitchState(System.Text.Json.JsonElement inputs, System.Text.Json.JsonElement root)
+    {
+        if (!inputs.TryGetProperty("switch", out var v)) return null;
+        for (var hop = 0; hop < 4; hop++)
+        {
+            switch (v.ValueKind)
+            {
+                case System.Text.Json.JsonValueKind.True:  return true;
+                case System.Text.Json.JsonValueKind.False: return false;
+                case System.Text.Json.JsonValueKind.String:
+                    var s = v.GetString();
+                    if (string.Equals(s, "true",  StringComparison.OrdinalIgnoreCase)) return true;
+                    if (string.Equals(s, "false", StringComparison.OrdinalIgnoreCase)) return false;
+                    return null;
+                case System.Text.Json.JsonValueKind.Array
+                    when v.GetArrayLength() >= 1
+                         && v[0].ValueKind == System.Text.Json.JsonValueKind.String
+                         && root.TryGetProperty(v[0].GetString()!, out var refNode)
+                         && refNode.TryGetProperty("inputs", out var refInputs):
+                    if (refInputs.TryGetProperty("value",   out var nv)) { v = nv; continue; }
+                    if (refInputs.TryGetProperty("boolean", out var nb)) { v = nb; continue; }
+                    return null;
+                default:
+                    return null;
+            }
+        }
+        return null;
     }
 
     /// <summary>グラフ全体を走査し、指定フィールド名のリテラル widget 値を拾って parameters[outKey] に入れる。

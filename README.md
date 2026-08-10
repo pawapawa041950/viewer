@@ -10,7 +10,7 @@ Windows 用の画像生成AIにて作成された画像/動画ビューワー。
 ## 主な機能
 
 - **生成 AI 画像のメタデータ表示** : NovelAI（ステルス / アルファ LSB）、ComfyUI（PNG / WebP / JPEG）、C2PA / Content Credentials、EXIF をポップアップ・詳細ペインで表示
-- **生成 AI 動画のメタデータ表示** : ComfyUI で作成された動画（MP4）のプロンプト / モデル / LoRA / Text encoder / VAE 等
+- **生成 AI 動画のメタデータ表示** : ComfyUI で作成された動画（MP4 / WebM / MKV）のプロンプト / モデル / LoRA / Text encoder / VAE 等
 - **動画再生** : 専用プレーヤーで再生（繰り返し再生 / A-B リピート / 詳細ペイン）
 - **タグフィルター** : タグで一覧を絞り込み
 - **複数枚表示** : 1枚はもちろん、2枚だけでなく16枚まで同時表示可能

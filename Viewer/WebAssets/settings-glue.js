@@ -29,6 +29,10 @@
   const preloadCount = document.getElementById('preload_count');
   const imgAlwaysOnTop = document.getElementById('image_window_always_on_top');
   const imgPerTab = document.getElementById('image_window_per_tab');
+  const videoAutoplay = document.getElementById('video_autoplay');
+  const videoLoopDefault = document.getElementById('video_loop_default');
+  const videoAlwaysOnTop = document.getElementById('video_window_always_on_top');
+  const videoSeekSeconds = document.getElementById('video_seek_seconds');
 
   // 「決まったフォルダ」選択時だけパス入力／参照ボタンを有効化。
   function syncStartupEnabled() {
@@ -65,6 +69,10 @@
     preloadCount.value = (typeof s.preload_count === 'number') ? s.preload_count : 3;
     imgAlwaysOnTop.checked = s.image_window_always_on_top !== false;
     imgPerTab.checked = !!s.image_window_per_tab;
+    videoAutoplay.checked = s.video_autoplay !== false;
+    videoLoopDefault.checked = !!s.video_loop_default;
+    videoAlwaysOnTop.checked = s.video_window_always_on_top !== false;
+    videoSeekSeconds.value = (typeof s.video_seek_seconds === 'number') ? s.video_seek_seconds : 5;
   }).catch(() => {});
 
   function bindCheckbox(el, key) {
@@ -82,6 +90,18 @@
   bindCheckbox(loopNav, 'loop_navigation');
   bindCheckbox(imgAlwaysOnTop, 'image_window_always_on_top');
   bindCheckbox(imgPerTab, 'image_window_per_tab');
+  bindCheckbox(videoAutoplay, 'video_autoplay');
+  bindCheckbox(videoLoopDefault, 'video_loop_default');
+  bindCheckbox(videoAlwaysOnTop, 'video_window_always_on_top');
+
+  // 動画のシーク秒数。
+  videoSeekSeconds.addEventListener('change', () => {
+    let v = parseInt(videoSeekSeconds.value, 10);
+    if (!(v >= 1)) v = 1;
+    if (v > 60) v = 60;
+    videoSeekSeconds.value = v;
+    invoke('set_setting', { key: 'video_seek_seconds', value: v }).catch(() => {});
+  });
 
   // 事前読み枚数。
   preloadCount.addEventListener('change', () => {

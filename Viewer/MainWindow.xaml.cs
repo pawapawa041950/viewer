@@ -248,6 +248,20 @@ public partial class MainWindow : Window
         show_archives_in_tree = _settings.ShowArchivesInTree,
         image_window_always_on_top = _settings.ImageWindowAlwaysOnTop,
         image_window_per_tab = _settings.ImageWindowPerTab,
+        video_autoplay = _settings.VideoAutoplay,
+        video_loop_default = _settings.VideoLoopDefault,
+        video_seek_seconds = _settings.VideoSeekSeconds,
+        video_window_always_on_top = _settings.VideoWindowAlwaysOnTop,
+    };
+
+    // 動画ウィンドウへ渡す設定（video_ready の初期値 / 変更時の video_settings_changed）。
+    private object VideoSettingsPayload() => new
+    {
+        autoplay = _settings.VideoAutoplay,
+        loop_default = _settings.VideoLoopDefault,
+        seek_seconds = _settings.VideoSeekSeconds,
+        volume = _settings.VideoVolume,
+        muted = _settings.VideoMuted,
     };
 
     // ---- 全タブ／全画像ウィンドウへのブロードキャスト（複数 WebView2 化に伴う共通化） ----
@@ -350,6 +364,29 @@ public partial class MainWindow : Window
                 // 開いている全画像ウィンドウに即時反映（Owner の付け外しで常駐/独立を切替）。
                 foreach (var h in AllImageHosts())
                     h.Window.Owner = _settings.ImageWindowAlwaysOnTop ? this : null;
+                break;
+            case "video_autoplay":
+                _settings.VideoAutoplay = Bool(args, "value");
+                SettingsService.Save(_settings);
+                _videoBridge?.EmitEvent("video_settings_changed", VideoSettingsPayload());
+                break;
+            case "video_loop_default":
+                _settings.VideoLoopDefault = Bool(args, "value");
+                SettingsService.Save(_settings);
+                break;
+            case "video_seek_seconds":
+                if (args.TryGetProperty("value", out var vs) && vs.TryGetInt32(out var vsec))
+                {
+                    _settings.VideoSeekSeconds = Math.Clamp(vsec, 1, 60);
+                    SettingsService.Save(_settings);
+                    _videoBridge?.EmitEvent("video_settings_changed", VideoSettingsPayload());
+                }
+                break;
+            case "video_window_always_on_top":
+                _settings.VideoWindowAlwaysOnTop = Bool(args, "value");
+                SettingsService.Save(_settings);
+                if (_videoWindow != null)
+                    _videoWindow.Owner = _settings.VideoWindowAlwaysOnTop ? this : null;
                 break;
             case "image_window_per_tab":
                 _settings.ImageWindowPerTab = Bool(args, "value");
@@ -1195,6 +1232,7 @@ public partial class MainWindow : Window
                 ShortcutsService.Save(settings);
                 foreach (var t in _tabs) { t.Bridge?.EmitEvent("shortcuts-updated", null); t.DetailsBridge?.EmitEvent("shortcuts-updated", null); }
                 foreach (var h in AllImageHosts()) h.Bridge?.EmitEvent("shortcuts-updated", null);
+                _videoBridge?.EmitEvent("shortcuts-updated", null);
             }
             return (object?)null;
         });
@@ -1398,8 +1436,21 @@ public partial class MainWindow : Window
             return;
         }
 
-        var win = new VideoWindow();
+        var win = new VideoWindow { Owner = _settings.VideoWindowAlwaysOnTop ? this : null };
         _videoWindow = win;
+
+        // 保存済みのサイズ/位置を復元（仕様 §9。画像ウィンドウと同じ流儀）。
+        win.Width = _settings.VideoWindowWidth;
+        win.Height = _settings.VideoWindowHeight;
+        if (_settings.VideoWindowLeft is double vl && _settings.VideoWindowTop is double vt)
+        {
+            win.WindowStartupLocation = WindowStartupLocation.Manual;
+            win.Left = vl;
+            win.Top = vt;
+        }
+        if (_settings.VideoWindowMaximized) win.WindowState = WindowState.Maximized;
+
+        win.Closing += (s, _) => SaveVideoWindowBounds((VideoWindow)s!);
         win.Closed += (_, _) =>
         {
             _videoWindow = null;
@@ -1413,9 +1464,30 @@ public partial class MainWindow : Window
         _videoBridge = await SetupWebViewAsync(win.View, "video.html", b =>
         {
             RegisterCommands(b, null); // get_image_details / open_with_default_app 等の共通コマンド
-            b.Register("video_ready", _ => (object?)new { path = _pendingVideoPath });
+            b.Register("video_ready", _ =>
+            {
+                // パス＋動画ウィンドウ設定（自動再生/既定ループ/シーク秒数/音量）を初期データとして返す。
+                return (object?)new
+                {
+                    path = _pendingVideoPath,
+                    autoplay = _settings.VideoAutoplay,
+                    loop_default = _settings.VideoLoopDefault,
+                    seek_seconds = _settings.VideoSeekSeconds,
+                    volume = _settings.VideoVolume,
+                    muted = _settings.VideoMuted,
+                };
+            });
             b.Register("close_video", _ => { win.Close(); return (object?)null; });
             b.Register("set_video_title", args => { win.Title = Str(args, "title"); return (object?)null; });
+            // 音量・ミュートの自動記憶（JS 側が volumechange をデバウンスして呼ぶ）。
+            b.Register("set_video_state", args =>
+            {
+                if (args.TryGetProperty("volume", out var v) && v.TryGetDouble(out var vol))
+                    _settings.VideoVolume = Math.Clamp(vol, 0, 1);
+                _settings.VideoMuted = Bool(args, "muted");
+                SettingsService.Save(_settings);
+                return (object?)null;
+            });
         });
 
         // <video> 標準コントロールの全画面ボタン（HTML 全画面要素）にウィンドウを追随させる。
@@ -1480,6 +1552,34 @@ public partial class MainWindow : Window
         }
         view.CoreWebView2.NavigationCompleted += FocusWhenLoaded;
         return host;
+    }
+
+    // 動画ウィンドウのサイズ/位置を設定に保存（画像ウィンドウと同じ流儀・仕様 §9）。
+    private void SaveVideoWindowBounds(VideoWindow w)
+    {
+        if (w.IsFullscreen) return; // 全画面中に閉じた場合は全画面前のサイズを保持
+
+        if (w.WindowState == WindowState.Maximized)
+        {
+            _settings.VideoWindowMaximized = true;
+            var rb = w.RestoreBounds;
+            if (!rb.IsEmpty)
+            {
+                _settings.VideoWindowWidth = rb.Width;
+                _settings.VideoWindowHeight = rb.Height;
+                _settings.VideoWindowLeft = rb.Left;
+                _settings.VideoWindowTop = rb.Top;
+            }
+        }
+        else
+        {
+            _settings.VideoWindowMaximized = false;
+            _settings.VideoWindowWidth = w.Width;
+            _settings.VideoWindowHeight = w.Height;
+            _settings.VideoWindowLeft = w.Left;
+            _settings.VideoWindowTop = w.Top;
+        }
+        SettingsService.Save(_settings);
     }
 
     // 画像ウィンドウのサイズ/位置を設定に保存（最大化時は復元サイズを保持）。

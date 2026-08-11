@@ -91,8 +91,15 @@ public sealed class IpcBridge
     {
         void Send()
         {
-            var msg = JsonSerializer.Serialize(new ResponseMessage(id, ok, result, error), Json.Options);
-            _core.PostWebMessageAsJson(msg);
+            // コマンド処理中にウィンドウが閉じられると WebView2 が破棄済みのことがある
+            // （例: close_viewer / close_video 自身への応答）。破棄済みへの送信は無視する。
+            // ここで握らないと OnWebMessageReceived(async void) の外へ漏れて未処理例外になる。
+            try
+            {
+                var msg = JsonSerializer.Serialize(new ResponseMessage(id, ok, result, error), Json.Options);
+                _core.PostWebMessageAsJson(msg);
+            }
+            catch { /* 破棄済み WebView2 への送信は無視 */ }
         }
         if (_dispatcher.CheckAccess()) Send();
         else _dispatcher.BeginInvoke(Send);

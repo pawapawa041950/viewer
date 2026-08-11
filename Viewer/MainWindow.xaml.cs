@@ -417,7 +417,14 @@ public partial class MainWindow : Window
 
         // 設定類は実 exe フォルダーに置く（単一 exe でも消えないように・仕様 §9）。
         var userData = Backend.AppPaths.Combine("WebView2Data");
-        _env = await CoreWebView2Environment.CreateAsync(null, userData);
+        // Chromium の自動再生ポリシーを解除。既定では「ユーザー操作なしの音声付き自動再生」が
+        // ブロックされるため、動画ウィンドウの「開いたとき自動で再生」設定が効かない。
+        // 再生するかどうかはアプリ側（video-glue の autoplay 設定反映）で制御する。
+        var envOptions = new CoreWebView2EnvironmentOptions
+        {
+            AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
+        };
+        _env = await CoreWebView2Environment.CreateAsync(null, userData, envOptions);
 
         BuildShellTree();
 

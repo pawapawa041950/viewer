@@ -1003,6 +1003,10 @@ public static class AiImageMetadataService
         // グラフ解析で positive/negative が取れなかったときの補完に使う。
         var (recordedPositive, recordedNegative) = ExtractRecordedTexts(kv);
 
+        // 生成ツールの自己申告 (software キー)。scom-v (../scom-v) は "scom-v <version>" を書くので
+        // 生成元表示をツール名で上書きする（画像側の infotext Version="scom..." 判定と同じ流儀）。
+        var toolGen = DetectVideoToolGenerator(kv);
+
         // ---- ComfyUI: key="prompt"（API グラフ JSON）を画像と同じパーサで解釈 ----
         if (kv.TryGetValue("prompt", out var comfyPrompt))
         {
@@ -1015,29 +1019,35 @@ public static class AiImageMetadataService
                     meta = meta with { Positive = recordedPositive };
                 if (string.IsNullOrEmpty(meta.Negative) && !string.IsNullOrEmpty(recordedNegative))
                     meta = meta with { Negative = recordedNegative };
+                if (toolGen != null)
+                {
+                    meta = meta with { Generator = toolGen };
+                    meta.Parameters["Generator"] = toolGen;
+                }
                 return meta;
             }
         }
 
-        // グラフが無い / 解釈不能でも recorded_texts に実行時プロンプトが残っていれば ComfyUI として返す。
+        // グラフが無い / 解釈不能でも recorded_texts に実行時プロンプトが残っていれば生成 AI として返す。
         if (!string.IsNullOrEmpty(recordedPositive))
         {
-            var parameters = new Dictionary<string, string>(StringComparer.Ordinal) { ["Generator"] = "ComfyUI" };
+            var gen = toolGen ?? "ComfyUI";
+            var parameters = new Dictionary<string, string>(StringComparer.Ordinal) { ["Generator"] = gen };
             if (w > 0 && h > 0) parameters["Size"] = $"{w}x{h}";
             return new AiImageMetadata
             {
                 Format = format, FileSize = fileSize, Width = w, Height = h,
                 Positive = recordedPositive, Negative = recordedNegative,
-                Generator = "ComfyUI", Parameters = parameters,
+                Generator = gen, Parameters = parameters,
             };
         }
 
-        // 署名（prompt / workflow キー）はあるが JSON を解釈できなかった場合は部分結果。
-        if (kv.ContainsKey("prompt") || kv.ContainsKey("workflow"))
+        // 署名（prompt / workflow / ツール自己申告）はあるが JSON を解釈できなかった場合は部分結果。
+        if (kv.ContainsKey("prompt") || kv.ContainsKey("workflow") || toolGen != null)
         {
             var other = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var (k, v) in kv) AddGeneralMeta(other, k, v);
-            return BuildPartialAiResult("ComfyUI", other, format, fileSize, w, h);
+            return BuildPartialAiResult(toolGen ?? "ComfyUI", other, format, fileSize, w, h);
         }
 
         // AI 由来でなくても、取れたキー（encoder 等）は一般メタデータとして公開（仕様 §6）。
@@ -1104,6 +1114,17 @@ public static class AiImageMetadataService
                 // JSON として読めない値 (ただのコメント文字列等) は無視して次のキーへ
             }
         }
+    }
+
+    /// <summary>動画メタデータの software キーから生成ツールを判別する。
+    /// scom-v (../scom-v) は software="scom-v &lt;version&gt;"（JSON 文字列のまま書かれ引用符が付くことがある）。
+    /// 該当しなければ null（= 従来どおり ComfyUI 等の判定に任せる）。</summary>
+    private static string? DetectVideoToolGenerator(Dictionary<string, string> kv)
+    {
+        if (!kv.TryGetValue("software", out var sw) || string.IsNullOrEmpty(sw)) return null;
+        var s = sw.Trim().Trim('"').Trim();
+        if (s.StartsWith("scom-v", StringComparison.OrdinalIgnoreCase)) return "scom-v";
+        return null;
     }
 
     /// <summary>"recorded_texts" キー ({"prompt": "...", "negative": "...", ...} 形式) から

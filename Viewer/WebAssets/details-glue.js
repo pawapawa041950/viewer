@@ -190,7 +190,16 @@
   }
   function promptBlock(label, text, neg) {
     return '<div class="section">' + esc(label) + '</div>' +
-      '<div class="prompt' + (neg ? ' neg' : '') + '">' + esc(text) + '</div>';
+      '<div class="prompt' + (neg ? ' neg' : '') + '">' + promptHtml(text) + '</div>';
+  }
+  // Contex Loop 等の複数シーン構成でホストが挿入する区切り見出し行
+  // （"── 共通プレフィックス ──" / "── シーン 1/6 [0:00.0–0:05.0]: id ──"）だけ色を変える。
+  function promptHtml(text) {
+    return String(text == null ? '' : text).split('\n')
+      .map((line) => line.indexOf('──') === 0
+        ? '<span class="prompt-scene-header">' + esc(line) + '</span>'
+        : esc(line))
+      .join('\n');
   }
   function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 

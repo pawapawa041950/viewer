@@ -244,6 +244,8 @@ body { display: flex; flex-direction: row; }
 .overlay .section { margin: 10px 0 4px; font-weight: bold; color: #9bd; border-bottom: 1px solid #2a3a55; padding-bottom: 2px; }
 .overlay .prompt { white-space: pre-wrap; word-break: break-word; background: #0b1322; border-radius: 4px; padding: 6px; line-height: 1.4; }
 .overlay .prompt.neg { color: #e6a9a9; }
+/* 複数シーン (Contex Loop 等) のプロンプト内にホストが挿入する区切り見出し行（暗背景用）。 */
+.overlay .prompt .prompt-scene-header { color: #ffcc66; font-weight: bold; }
 .overlay .grid { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
 
 /* 画像上の右クリックメニューの見た目は ctx-menu.css（共用）を参照。 */

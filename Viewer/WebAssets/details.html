@@ -39,6 +39,9 @@
     .section { margin: 10px 0 4px; font-weight: bold; color: #0067c0; border-bottom: 1px solid #e0e0e0; padding-bottom: 2px; }
     .prompt { white-space: pre-wrap; word-break: break-word; background: #eae7db; border-radius: 4px; padding: 6px; font-size: 12px; line-height: 1.4; }
     .prompt.neg { color: #b00020; }
+    /* 複数シーン (Contex Loop 等) のプロンプト内にホストが挿入する区切り見出し行。
+       本文と区別するため色付き＋太字にする（明背景ペイン用の配色）。 */
+    .prompt .prompt-scene-header { color: #9a6400; font-weight: bold; }
     .grid { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 12px; }
     .grid .pk { color: #555; }
     .grid .pv { color: #1a1a1a; word-break: break-all; }

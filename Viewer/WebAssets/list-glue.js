@@ -73,7 +73,7 @@
     getDestinationFolder: () => (currentArchive ? null : currentFolder),
     getCurrentArchive: () => currentArchive,
     onOpenImage: (path) => openImageAt(path),
-    onOpenVideo: (path) => invoke('open_video', { path }),
+    onOpenVideo: (path) => openVideoAt(path),
     onOpenFolder: (path) => {
       if (currentArchive) enterArchiveInner(path);
       else loadFolder(path);
@@ -391,7 +391,7 @@
     invoke('selection_changed', { paths: [], archivePath: currentArchive });
 
     applyTagFilterDom(); // 再構築した DOM にタグフィルターを再適用（仕様 §7）
-    notifyViewerImages(); // 開いているビューワの画像リストを最新の一覧に追従（増減を反映・仕様 §4.5）
+    notifyViewerLists(); // 開いているビューワの画像リストを最新の一覧に追従（増減を反映・仕様 §4.5）
     loadThumbnails(imageItems, myLoad);
     // 動画＝シェルサムネイル（配信側が生成）。バッジ＋右下サムネの thumb-host 方式。
     loadThumbHosts(videoItems, myLoad, null,
@@ -468,7 +468,7 @@
     if (survivors.length !== prevSel.length) FileList.setSelection(survivors);
 
     applyTagFilterDom();
-    notifyViewerImages();
+    notifyViewerLists();
     loadThumbnails(imageItems, myLoad);
     loadThumbHosts(videoItems, myLoad, null,
       (f) => 'https://file.viewer/raw?p=' + encodeURIComponent(f.path));
@@ -509,10 +509,12 @@
     for (const { item } of items) observer.observe(item);
   }
 
-  // 開いているビューワへ、現在表示中（タグフィルター適用後・ソート順）の画像集合を通知する。
-  // ビューワ側は同じフォルダーの更新のみ受け入れる（別フォルダーへ移動した一覧は無視）。
-  function notifyViewerImages() {
+  // 開いているビューワへ、現在表示中（タグフィルター適用後・ソート順）の画像／動画集合を通知する。
+  // 画像ウィンドウ側は同じフォルダーの更新のみ受け入れる（別フォルダーへ移動した一覧は無視）。
+  // 動画ウィンドウ側は連続再生のプレイリストとして使う。
+  function notifyViewerLists() {
     invoke('update_viewer_images', { paths: visibleImagePaths() }).catch(() => {});
+    invoke('update_viewer_videos', { paths: visibleVideoPaths() }).catch(() => {});
   }
 
   // ---- サムネイル：キャッシュなし・ビューポート優先・並列度制御（仕様 §3） ----
@@ -581,6 +583,25 @@
     return out;
   }
 
+  // 現在表示中（タグフィルター適用後・ソート順）の動画パスを DOM 順に返す。
+  // 動画ウィンドウの「連続再生」はこの順序で次のファイルへ進む（一覧が唯一の真実源）。
+  // 書庫内はディスク上のファイルではなく再生できないため空にする。
+  function visibleVideoPaths() {
+    if (currentArchive) return [];
+    const out = [];
+    grid.querySelectorAll('.file-item').forEach((el) => {
+      if (el.dataset.isVideo !== 'true') return;
+      if (el.style.display === 'none') return;
+      out.push(el.dataset.path);
+    });
+    return out;
+  }
+
+  // 動画を動画ウィンドウで開く。表示中の動画集合（連続再生用）も一緒に渡す。
+  function openVideoAt(path) {
+    invoke('open_video', { path, paths: visibleVideoPaths() });
+  }
+
   // 画像をビューワで開く。表示中の画像集合のみをホストへ渡す（唯一の真実源・仕様 §4.5）。
   function openImageAt(path) {
     const paths = visibleImagePaths();
@@ -594,7 +615,7 @@
     if (el.dataset.isImage === 'true') {
       openImageAt(path);
     } else if (el.dataset.isVideo === 'true') {
-      invoke('open_video', { path });
+      openVideoAt(path);
     } else if (el.dataset.type === 'folder') {
       if (currentArchive) enterArchiveInner(path);
       else loadFolder(path);
@@ -789,7 +810,7 @@
       tagFilter = (p && p.active) ? new Set(p.paths || []) : null;
       applyTagFilterDom();
       // 開いているビューワにも絞り込み後の画像集合を反映（切替/先読みを揃える・仕様 §4.5/§7）。
-      notifyViewerImages();
+      notifyViewerLists();
     });
   }
 })();

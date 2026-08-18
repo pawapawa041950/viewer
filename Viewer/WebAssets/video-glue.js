@@ -17,6 +17,12 @@
 
   let current = null;    // { path }
   let seekSeconds = 5;   // 矢印キーのシーク秒数（設定・仕様 §9）
+  // 連続再生用プレイリスト（ファイル一覧ペインの表示順＝ソート・タグフィルター適用後）。
+  // 一覧側の更新（ソート変更・フォルダー更新）に video_list_changed で追従する。
+  let playlist = [];
+  // 再生モード（ループボタンで循環）: 'loop'=同じ動画を繰り返し /
+  // 'continuous'=一覧の次の動画へ / 'single'=1本で停止。
+  let playMode = 'loop';
 
   // ホストからの設定を反映（video_ready の初期値 / video_settings_changed のライブ変更）。
   function applySettings(s, initial) {
@@ -24,8 +30,7 @@
     if (typeof s.seek_seconds === 'number' && s.seek_seconds > 0) seekSeconds = s.seek_seconds;
     vid.autoplay = s.autoplay !== false;
     if (initial) {
-      vid.loop = !!s.loop_default;
-      loopBtn.classList.toggle('active', vid.loop);
+      setPlayMode(s.loop_default ? 'loop' : 'single');
       if (typeof s.volume === 'number') vid.volume = Math.max(0, Math.min(1, s.volume));
       vid.muted = !!s.muted;
     }
@@ -44,7 +49,8 @@
   // 動画本体の配信 URL（t 無し＝ホストが Range 対応でストリーミング配信する）。
   function srcUrl(p) { return 'https://file.viewer/raw?p=' + encodeURIComponent(p); }
 
-  function load(path) {
+  function load(path, paths) {
+    if (Array.isArray(paths)) playlist = paths;
     current = { path };
     errBox.classList.add('hidden');
     vid.classList.remove('hidden');
@@ -107,12 +113,44 @@
   });
   detailBtn.addEventListener('click', toggleOverlay);
 
-  // ---- 繰り返し再生（全体ループ）----
-  function toggleLoop() {
-    vid.loop = !vid.loop;
-    loopBtn.classList.toggle('active', vid.loop);
+  // ---- 再生モード（ループ → 連続 → 単発 の循環）----
+  // ループ  : 同じ動画を繰り返す（<video> の loop でギャップ最小）
+  // 連続    : 再生し終わったらファイル一覧の並び順で次の動画へ（末尾からは先頭へ戻る）
+  // 単発    : 終端で停止（何もしない）
+  const MODE_UI = {
+    loop:       { icon: '⟳', title: '再生モード: ループ（クリックで連続再生へ）',   cls: 'active' },
+    continuous: { icon: '⏭', title: '再生モード: 連続再生（クリックで単発再生へ）', cls: 'cont' },
+    single:     { icon: '❶', title: '再生モード: 単発（クリックでループへ）',       cls: '' },
+  };
+  function setPlayMode(mode) {
+    playMode = MODE_UI[mode] ? mode : 'single';
+    vid.loop = playMode === 'loop';
+    const ui = MODE_UI[playMode];
+    loopBtn.textContent = ui.icon;
+    loopBtn.title = ui.title;
+    loopBtn.classList.toggle('active', ui.cls === 'active');
+    loopBtn.classList.toggle('cont', ui.cls === 'cont');
   }
-  loopBtn.addEventListener('click', toggleLoop);
+  function cyclePlayMode() {
+    const next = playMode === 'loop' ? 'continuous' : playMode === 'continuous' ? 'single' : 'loop';
+    setPlayMode(next);
+    showHint(next === 'loop' ? 'ループ再生' : next === 'continuous' ? '連続再生' : '単発再生');
+  }
+  // 互換名（ショートカット登録で使用）
+  const toggleLoop = cyclePlayMode;
+  loopBtn.addEventListener('click', cyclePlayMode);
+
+  // 連続再生：一覧の並び順で次の動画を再生する（末尾は先頭へ戻る）。
+  function playNextInList() {
+    if (playlist.length === 0) return false;
+    const cur = current ? current.path : null;
+    let idx = cur ? playlist.findIndex((p) => p.toLowerCase() === cur.toLowerCase()) : -1;
+    const next = playlist[(idx + 1) % playlist.length]; // 見つからない場合(-1)は先頭から
+    if (!next || (cur && next.toLowerCase() === cur.toLowerCase() && playlist.length === 1)) return false;
+    load(next);
+    vid.play().catch(() => {});
+    return true;
+  }
 
   // ---- A-B リピート ----
   // ボタン/Aキーのサイクル：A 点設定 → B 点設定（同時に区間再生開始） → 解除。
@@ -154,9 +192,11 @@
     if (abA !== null && abB !== null && vid.currentTime >= abB) vid.currentTime = abA;
     requestAnimationFrame(abTick);
   })();
-  // B 点が末尾付近で ended が先に来た場合も A 点へ戻して継続。
+  // 終端到達時の挙動。A-B リピート中はそれを最優先（B 点が末尾付近で ended が先に来るケース）、
+  // それ以外は再生モードに従う（連続再生なら一覧の次の動画へ）。
   vid.addEventListener('ended', () => {
-    if (abA !== null && abB !== null) { vid.currentTime = abA; vid.play().catch(() => {}); }
+    if (abA !== null && abB !== null) { vid.currentTime = abA; vid.play().catch(() => {}); return; }
+    if (playMode === 'continuous') playNextInList();
   });
 
   // ---- 再生操作（ショートカットから呼ばれるアクション群） ----
@@ -233,8 +273,13 @@
   // ---- ホストからの通知 ----
   const ev = window.__TAURI__ && window.__TAURI__.event;
   if (ev) {
-    ev.listen('load_video', (e) => { const p = e && e.payload; if (p && p.path) load(p.path); });
+    ev.listen('load_video', (e) => { const p = e && e.payload; if (p && p.path) load(p.path, p.paths); });
     ev.listen('video_settings_changed', (e) => applySettings(e && e.payload, false));
+    // 一覧のソート変更・フォルダー更新に連続再生のプレイリストを追従させる。
+    ev.listen('video_list_changed', (e) => {
+      const p = e && e.payload;
+      if (p && Array.isArray(p.paths)) playlist = p.paths;
+    });
   }
 
   // ---- 起動：ホストへ初期データ（パス＋設定）を要求 ----
@@ -242,7 +287,7 @@
     .then((data) => {
       if (!data) return;
       applySettings(data, true);
-      if (data.path) load(data.path);
+      if (data.path) load(data.path, data.paths);
     })
     .catch(() => {});
 })();

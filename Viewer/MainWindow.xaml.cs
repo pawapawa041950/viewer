@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -80,6 +80,8 @@ public partial class MainWindow : Window
     private VideoWindow? _videoWindow;
     private IpcBridge? _videoBridge;
     private string? _pendingVideoPath;
+    // 連続再生用のプレイリスト（一覧ペインの表示順＝ソート/タグフィルター適用後の動画パス群）。
+    private string[] _pendingVideoPaths = Array.Empty<string>();
 
     // ショートカット編集ウィンドウ（仕様 §8：単一インスタンス）。
     private ShortcutsWindow? _shortcutsWindow;
@@ -1217,7 +1219,11 @@ public partial class MainWindow : Window
         bridge.Register("paste_from_clipboard", args => (object?)PasteFromClipboard(Str(args, "destination")));
 
         // 動画を開く（動画ウィンドウ・単一インスタンス）。一覧・詳細ペインのどこからでも呼べる。
-        bridge.Register("open_video", args => { _ = OpenVideoWindowAsync(Str(args, "path")); return (object?)null; });
+        bridge.Register("open_video", args =>
+        {
+            _ = OpenVideoWindowAsync(Str(args, "path"), StrArray(args, "paths"));
+            return (object?)null;
+        });
 
         // コンテキストメニュー用（仕様 §2.4）
         bridge.Register("open_in_explorer", args => { OpenInExplorer(Str(args, "path")); return (object?)null; });
@@ -1328,6 +1334,14 @@ public partial class MainWindow : Window
                 return (object?)null;
             });
 
+            // 動画ウィンドウの連続再生プレイリストも一覧に追従させる（ソート変更・フォルダー更新等）。
+            bridge.Register("update_viewer_videos", args =>
+            {
+                _pendingVideoPaths = StrArray(args, "paths");
+                _videoBridge?.EmitEvent("video_list_changed", new { paths = _pendingVideoPaths });
+                return (object?)null;
+            });
+
             // タブ操作（一覧側ショートカットから・既定 Ctrl+T / Ctrl+F4 / Ctrl+Tab）。
             bridge.Register("new_tab", args => { _ = NewTabFromActiveAsync(); return (object?)null; });
             bridge.Register("new_tab_with_folder", args =>
@@ -1428,10 +1442,12 @@ public partial class MainWindow : Window
     }
 
     // ---- 動画ウィンドウ（単一インスタンス。画像ウィンドウ踏襲の簡易版） ----
-    private async Task OpenVideoWindowAsync(string path)
+    private async Task OpenVideoWindowAsync(string path, string[]? playlist = null)
     {
         if (string.IsNullOrEmpty(path)) return;
         _pendingVideoPath = path;
+        // 連続再生の順序は一覧ペインの表示順（ソート・タグフィルター適用後）が唯一の真実源。
+        if (playlist is { Length: > 0 }) _pendingVideoPaths = playlist;
 
         // 再利用：既存ウィンドウを前面化して差し替え通知。
         if (_videoWindow != null)
@@ -1439,7 +1455,7 @@ public partial class MainWindow : Window
             if (_videoWindow.WindowState == WindowState.Minimized) _videoWindow.WindowState = WindowState.Normal;
             _videoWindow.Activate();
             _videoWindow.View.Focus();
-            _videoBridge?.EmitEvent("load_video", new { path });
+            _videoBridge?.EmitEvent("load_video", new { path, paths = _pendingVideoPaths });
             return;
         }
 
@@ -1477,6 +1493,7 @@ public partial class MainWindow : Window
                 return (object?)new
                 {
                     path = _pendingVideoPath,
+                    paths = _pendingVideoPaths,
                     autoplay = _settings.VideoAutoplay,
                     loop_default = _settings.VideoLoopDefault,
                     seek_seconds = _settings.VideoSeekSeconds,

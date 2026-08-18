@@ -112,6 +112,12 @@ body { display: flex; flex-direction: row; }
   background: rgba(120, 170, 255, 0.55);
   border-color: rgba(160, 200, 255, 0.85);
 }
+/* 連続再生モード（ループとは別色にして一目で区別できるようにする） */
+.side-btn.cont {
+  background: rgba(120, 220, 160, 0.5);
+  border-color: rgba(160, 240, 190, 0.85);
+}
+
 /* A-B リピート：A 点だけ設定済み（B 点待ち）の中間状態 */
 .side-btn.half {
   background: rgba(255, 200, 100, 0.45);

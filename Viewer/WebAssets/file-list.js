@@ -69,15 +69,10 @@ const FileList = (function () {
     // the grid bounds.
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-    // ペイン内ドラッグ中にウィンドウ外へ出たら、外部（Explorer等）へのネイティブドラッグへ委譲。
-    document.addEventListener('mouseleave', () => {
-      if (pending && pending.kind === 'drag' && pending.started) {
-        const paths = pending.paths;
-        endDrag();
-        pending = null;
-        startNativeDrag(paths);
-      }
-    });
+    // ペイン外へ出たら、外部（Explorer等）へのネイティブドラッグへ委譲する。
+    // mouseleave はボタン押下中（＝暗黙のマウスキャプチャ中）には発火しないため、
+    // 実際の委譲判定は handleMouseMove の座標チェックで行う。これは保険。
+    document.addEventListener('mouseleave', () => handoffNativeDragIfDragging());
 
     registerShortcuts();
   }
@@ -425,8 +420,15 @@ const FileList = (function () {
         pending.started = true;
         createDragGhost(pending.paths.length);
       }
+      // ペイン外（＝他ペイン/他アプリ側）へ出たら OS のドラッグへ引き継ぐ。
+      // ボタン押下中は mouseleave が飛ばないので、座標で判定する。
+      const m = 2; // 端の取りこぼし防止マージン
+      if (e.clientX <= m || e.clientY <= m ||
+          e.clientX >= window.innerWidth - m || e.clientY >= window.innerHeight - m) {
+        handoffNativeDragIfDragging();
+        return;
+      }
       // ペイン内：ゴーストを追従させ、カーソル下のフォルダーをドロップ候補としてハイライト。
-      // ウィンドウ外へ出た場合は mouseleave で外部ネイティブドラッグへ委譲する。
       positionGhost(e);
       highlightDropFolder(folderUnder(e), pending.paths);
       return;
@@ -551,6 +553,18 @@ const FileList = (function () {
   }
 
   // ---- native drag-out ----
+
+  // ドラッグ中にペイン外へ出たときの引き継ぎ。ペイン内ドラッグ（ゴースト表示）を終了し、
+  // 以降は OS の DnD（ホスト側 DoDragDrop）に任せる。ボタンが押されたままである間に
+  // 呼ぶ必要がある（離した後だと OS のドラッグは即キャンセルされる）。
+  function handoffNativeDragIfDragging() {
+    if (!pending || pending.kind !== 'drag' || !pending.started) return;
+    const paths = pending.paths;
+    endDrag();
+    pending = null;
+    suppressEmptyClick = true; // 復帰後の click で選択が消えないように
+    startNativeDrag(paths);
+  }
 
   async function startNativeDrag(paths) {
     if (!paths || paths.length === 0) return;

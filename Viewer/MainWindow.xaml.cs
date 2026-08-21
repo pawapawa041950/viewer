@@ -1252,7 +1252,7 @@ public partial class MainWindow : Window
 
         // 他アプリへのネイティブ DnD（仕様 §2.2）。UI スレッドで実行。
         bridge.Register("start_native_drag", args =>
-            Task.FromResult<object?>(StartNativeDrag(StrArray(args, "paths"), Bool(args, "defaultMove"))));
+            StartNativeDrag(StrArray(args, "paths"), Bool(args, "defaultMove")));
 
         // ドラッグオーバー時の copy/move 判定用（仕様 §2.2）。
         bridge.Register("get_modifier_state", _ =>
@@ -1692,25 +1692,69 @@ public partial class MainWindow : Window
         });
     }
 
-    private string StartNativeDrag(string[] paths, bool defaultMove)
+    /// <summary>他アプリ（Explorer 等）へのネイティブ DnD を開始する（仕様 §2.2）。
+    ///
+    /// <para>ポイントは 2 つ:</para>
+    /// <list type="number">
+    /// <item>WebMessageReceived ハンドラの中で <c>DoDragDrop</c>（モーダルループ）を回すと
+    ///   WebView2 のメッセージ処理と入れ子になり、ドラッグが即キャンセルされる。
+    ///   Dispatcher へ積んでハンドラを抜けてから開始する。</item>
+    /// <item>ドラッグ開始時点ではボタン押下中で、マウスキャプチャは WebView2 の子ウィンドウが
+    ///   握っている。OLE のドラッグループが入力を受け取れるよう、キャプチャを解放し、
+    ///   Chromium 側には WM_LBUTTONUP を投げて「押しっぱなし状態」を終わらせておく
+    ///   （物理ボタンは押されたままなので OS のドラッグは継続する）。</item>
+    /// </list>
+    /// 戻り値は "copy" / "move" / "none"（ドロップ確定後に解決される Task）。</summary>
+    private Task<object?> StartNativeDrag(string[] paths, bool defaultMove)
     {
-        if (paths.Length == 0) return "none";
+        if (paths.Length == 0) return Task.FromResult<object?>("none");
 
-        // WebMessageReceived は WebView2 生成スレッド（＝UI）で発火するためここは UI スレッド。
-        var data = new DataObject();
-        var col = new System.Collections.Specialized.StringCollection();
-        foreach (var p in paths) col.Add(p);
-        data.SetFileDropList(col);
+        var tcs = new TaskCompletionSource<object?>();
 
-        var allowed = DragDropEffects.Copy | DragDropEffects.Move;
-        // copy/move の最終決定はドロップ時の修飾キーで OS（ターゲット）が行う。
-        var dragSrc = (DependencyObject?)_activeTab?.View ?? TabContentHost;
-        var effect = DragDrop.DoDragDrop(dragSrc, data, allowed);
+        // WebView2 側の入力処理を先に完了させてから OLE ドラッグを開始する。
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            var result = "none";
+            try
+            {
+                // WebView2 子ウィンドウのマウスキャプチャを解放（握っていなければ何もしない）。
+                var cap = GetCapture();
+                if (cap != IntPtr.Zero) PostMessage(cap, WM_LBUTTONUP, IntPtr.Zero, IntPtr.Zero);
+                ReleaseCapture();
 
-        if (effect.HasFlag(DragDropEffects.Move)) return "move";
-        if (effect.HasFlag(DragDropEffects.Copy)) return "copy";
-        return "none";
+                var data = new DataObject();
+                var col = new System.Collections.Specialized.StringCollection();
+                foreach (var p in paths) col.Add(p);
+                data.SetFileDropList(col);
+
+                var allowed = DragDropEffects.Copy | DragDropEffects.Move;
+                // copy/move の最終決定はドロップ時の修飾キーで OS（ターゲット）が行う。
+                var dragSrc = (DependencyObject?)_activeTab?.View ?? TabContentHost;
+                var effect = DragDrop.DoDragDrop(dragSrc, data, allowed);
+
+                if (effect.HasFlag(DragDropEffects.Move)) result = "move";
+                else if (effect.HasFlag(DragDropEffects.Copy)) result = "copy";
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DnD] DoDragDrop failed: {ex.Message}");
+            }
+            tcs.TrySetResult(result);
+        }), System.Windows.Threading.DispatcherPriority.Input);
+
+        return tcs.Task;
     }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetCapture();
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    private const uint WM_LBUTTONUP = 0x0202;
 
     // ---- シェル名前空間ツリー（仕様 §1.2 / C.6） ----
     private void BuildShellTree()

@@ -445,15 +445,12 @@ public partial class MainWindow : Window
         _newTabButton.Click += NewTabButton_Click;
         TabStripPanel.Children.Add(_newTabButton);
 
-        // ファイル関連付けからの起動（引数あり）：復元より優先し、対象を直接開く。
+        // ファイル関連付けからの起動（引数あり）でも前回タブは復元し、対象は「追加」で開く
+        // （過去のタブを消さない）。
         var pending = (Application.Current as App)?.PendingOpenPath;
-        if (!string.IsNullOrEmpty(pending))
-        {
-            await OpenFromPathAsync(pending!, isInitial: true);
-            return;
-        }
 
-        // 起動時のタブ復元：StartupMode=="last" かつ前回タブがあれば全タブを復元、なければ単一タブ。
+        // 起動時のタブ復元：StartupMode=="last" かつ前回タブがあれば全タブを復元。
+        var restored = false;
         if (_settings.StartupMode == "last" && _settings.OpenTabs is { Count: > 0 })
         {
             // 2つ目以降をアクティブにしながら作るとタブが順々に切り替わってフラッシュするため、
@@ -465,8 +462,15 @@ public partial class MainWindow : Window
             }
             var idx = Math.Clamp(_settings.ActiveTabIndex, 0, _tabs.Count - 1);
             ActivateTab(_tabs[idx]); // 対象だけ表示。他は Collapsed＋サスペンドへ。
+            restored = true;
         }
-        else
+
+        if (!string.IsNullOrEmpty(pending))
+        {
+            // 復元済みタブを残したまま、対象フォルダーを新規タブとして追加し、メディアは専用ウィンドウで開く。
+            await OpenFromPathAsync(pending!, isInitial: true);
+        }
+        else if (!restored)
         {
             await CreateTabAsync(ResolveStartupFolder() ?? "", activate: true);
         }
@@ -537,32 +541,19 @@ public partial class MainWindow : Window
         if (_tabs.Count == 0) await CreateTabAsync(ResolveStartupFolder() ?? "", activate: true);
     }
 
-    /// <summary>フォルダーを一覧で開く。cold start は新規タブ、稼働中はアクティブタブを移動。</summary>
+    /// <summary>フォルダーを一覧の「新規タブ」で開く（既存タブは消さない・書き換えない）。
+    /// cold start / 稼働中どちらもタブ追加で統一する。</summary>
     private async Task OpenFolderInListAsync(string folder, bool isInitial)
     {
-        if (isInitial || _activeTab == null)
-        {
-            await CreateTabAsync(folder, activate: true);
-        }
-        else
-        {
-            _activeTab.CurrentFolder = folder;
-            _activeTab.Bridge?.EmitEvent("navigate", new { path = folder });
-        }
+        _ = isInitial; // 挙動はどちらも「追加」で統一（前回タブ・現行タブを保持）
+        await CreateTabAsync(folder, activate: true);
     }
 
-    /// <summary>書庫を一覧で開く。cold start はタブの初期パスに書庫を渡し（list 側が resolve）、
-    /// 稼働中はアクティブタブへ navigate_archive を送る。</summary>
+    /// <summary>書庫を一覧の「新規タブ」で開く（初期パスに書庫を渡し、list 側が中身を展開）。</summary>
     private async Task OpenArchiveInListAsync(string archivePath, bool isInitial)
     {
-        if (isInitial || _activeTab == null)
-        {
-            await CreateTabAsync(archivePath, activate: true);
-        }
-        else
-        {
-            _activeTab.Bridge?.EmitEvent("navigate_archive", new { path = archivePath });
-        }
+        _ = isInitial;
+        await CreateTabAsync(archivePath, activate: true);
     }
 
     /// <summary>ウィンドウを前面化（最小化からの復帰＋アクティブ化）。</summary>
@@ -589,6 +580,10 @@ public partial class MainWindow : Window
         DetailsHost.Children.Add(detailsView);
         var tab = new TabContext { View = view, DetailsView = detailsView, InitialFolder = initialFolder ?? "" };
         if (!string.IsNullOrEmpty(initialFolder)) tab.CurrentFolder = initialFolder;
+        // 生成時点でチップ名を初期パスから決めておく（一覧の set_tab_title が後で上書きする）。
+        // これが無いと、復元直後にアクティブ化→追加タブで即サスペンドされたタブの見出しが
+        // 「新しいタブ」のまま残ることがある。
+        tab.Title = TabTitleFromPath(initialFolder);
         BuildTabChip(tab);
         _tabs.Add(tab);
         // 「＋」ボタンの直前に挿入（＋を常に末尾＝最後のタブの右隣に保つ）。
@@ -735,6 +730,16 @@ public partial class MainWindow : Window
     }
 
     // ---- タブの見出し（WPF）。見た目だけ WPF、中身の WebView は TabContentHost に常駐 ----
+    /// <summary>初期パスからタブ見出しを決める（フォルダー/書庫のファイル名。空なら「新しいタブ」）。
+    /// 一覧側が算出する set_tab_title が来れば上書きされる、あくまで初期表示用。</summary>
+    private static string TabTitleFromPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return "新しいタブ";
+        var name = System.IO.Path.GetFileName(path.TrimEnd('\\', '/'));
+        if (string.IsNullOrEmpty(name)) name = path; // ドライブ直下（"C:\\" 等）はパスそのまま
+        return name;
+    }
+
     private void BuildTabChip(TabContext tab)
     {
         var title = new TextBlock

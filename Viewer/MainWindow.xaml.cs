@@ -445,6 +445,14 @@ public partial class MainWindow : Window
         _newTabButton.Click += NewTabButton_Click;
         TabStripPanel.Children.Add(_newTabButton);
 
+        // ファイル関連付けからの起動（引数あり）：復元より優先し、対象を直接開く。
+        var pending = (Application.Current as App)?.PendingOpenPath;
+        if (!string.IsNullOrEmpty(pending))
+        {
+            await OpenFromPathAsync(pending!, isInitial: true);
+            return;
+        }
+
         // 起動時のタブ復元：StartupMode=="last" かつ前回タブがあれば全タブを復元、なければ単一タブ。
         if (_settings.StartupMode == "last" && _settings.OpenTabs is { Count: > 0 })
         {
@@ -462,6 +470,110 @@ public partial class MainWindow : Window
         {
             await CreateTabAsync(ResolveStartupFolder() ?? "", activate: true);
         }
+    }
+
+    // ---- ファイル関連付け起動 / 単一インスタンスへの引数転送で呼ばれる「パスを開く」処理 ----
+
+    /// <summary>他インスタンス（2 個目の起動）から転送されたパスを開き、ウィンドウを前面化する。</summary>
+    public async Task HandleExternalOpenAsync(string path)
+    {
+        BringToFront();
+        if (!string.IsNullOrEmpty(path)) await OpenFromPathAsync(path, isInitial: false);
+    }
+
+    /// <summary>渡されたパスを種別で振り分けて開く。
+    /// 画像→画像ウィンドウ / 動画→動画ウィンドウ / フォルダー・書庫→一覧タブ。
+    /// <paramref name="isInitial"/>=true は cold start（新規タブを作る）、false は稼働中
+    /// （アクティブタブをそのフォルダーへ移動）。</summary>
+    private async Task OpenFromPathAsync(string raw, bool isInitial)
+    {
+        var path = (raw ?? "").Trim().Trim('"');
+        if (string.IsNullOrEmpty(path)) { if (!isInitial) return; await EnsureBaseTabAsync(); return; }
+
+        // フォルダー：一覧で開く。
+        if (Directory.Exists(path)) { await OpenFolderInListAsync(path, isInitial); return; }
+
+        if (!File.Exists(path))
+        {
+            // 存在しないパスは通常起動にフォールバック（cold start のみ）。
+            if (isInitial) await EnsureBaseTabAsync();
+            return;
+        }
+
+        // 書庫：一覧で中身を展開。
+        if (FileTypes.IsArchive(path)) { await OpenArchiveInListAsync(path, isInitial); return; }
+
+        var dir = Path.GetDirectoryName(path) ?? "";
+
+        // 動画：含まれるフォルダーを一覧に出し（兄弟＝連続再生リスト）、動画ウィンドウで開く。
+        if (FileTypes.IsVideo(path))
+        {
+            await OpenFolderInListAsync(dir, isInitial);
+            var playlist = SafeGetFiles(dir).Where(f => !f.IsDir && f.IsVideo).Select(f => f.Path).ToArray();
+            await OpenVideoWindowAsync(path, playlist);
+            return;
+        }
+
+        // 画像：含まれるフォルダーを一覧に出し、画像ウィンドウで開く（兄弟画像で送り可能）。
+        if (FileTypes.IsImage(path))
+        {
+            await OpenFolderInListAsync(dir, isInitial);
+            await OpenImage(_activeTab!, path, "", "", Array.Empty<string>());
+            return;
+        }
+
+        // 未対応拡張子：含まれるフォルダーだけ開く。
+        await OpenFolderInListAsync(dir, isInitial);
+    }
+
+    private static List<FileEntry> SafeGetFiles(string dir)
+    {
+        try { return ListingService.GetFiles(dir); } catch { return new List<FileEntry>(); }
+    }
+
+    /// <summary>タブが 1 つも無ければ空タブを用意する（引数なし 2 重起動でのフォーカスのみ等）。</summary>
+    private async Task EnsureBaseTabAsync()
+    {
+        if (_tabs.Count == 0) await CreateTabAsync(ResolveStartupFolder() ?? "", activate: true);
+    }
+
+    /// <summary>フォルダーを一覧で開く。cold start は新規タブ、稼働中はアクティブタブを移動。</summary>
+    private async Task OpenFolderInListAsync(string folder, bool isInitial)
+    {
+        if (isInitial || _activeTab == null)
+        {
+            await CreateTabAsync(folder, activate: true);
+        }
+        else
+        {
+            _activeTab.CurrentFolder = folder;
+            _activeTab.Bridge?.EmitEvent("navigate", new { path = folder });
+        }
+    }
+
+    /// <summary>書庫を一覧で開く。cold start はタブの初期パスに書庫を渡し（list 側が resolve）、
+    /// 稼働中はアクティブタブへ navigate_archive を送る。</summary>
+    private async Task OpenArchiveInListAsync(string archivePath, bool isInitial)
+    {
+        if (isInitial || _activeTab == null)
+        {
+            await CreateTabAsync(archivePath, activate: true);
+        }
+        else
+        {
+            _activeTab.Bridge?.EmitEvent("navigate_archive", new { path = archivePath });
+        }
+    }
+
+    /// <summary>ウィンドウを前面化（最小化からの復帰＋アクティブ化）。</summary>
+    private void BringToFront()
+    {
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Show();
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
     }
 
     // ---- タブ管理（中央のファイル一覧。1タブ=1 WebView2・付け替えず Visibility で切替） ----

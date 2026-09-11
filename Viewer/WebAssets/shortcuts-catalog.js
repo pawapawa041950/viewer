@@ -77,7 +77,7 @@
     { id: "video.volume_down",       category: "動画ウィンドウ", name: "音量を下げる",              defaultShortcut: "ArrowDown",  defaultMouse: "ホイールダウン",        defaultGesture: "" },
     { id: "video.toggle_mute",       category: "動画ウィンドウ", name: "ミュート切替",              defaultShortcut: "M",          defaultMouse: "",                     defaultGesture: "" },
     { id: "video.toggle_loop",       category: "動画ウィンドウ", name: "再生モード切替 (ループ/連続/単発)",        defaultShortcut: "R",          defaultMouse: "",                     defaultGesture: "" },
-    { id: "video.ab_repeat",         category: "動画ウィンドウ", name: "A-B リピート (A点→B点→解除)", defaultShortcut: "A",        defaultMouse: "",                     defaultGesture: "" },
+    { id: "video.ab_repeat",         category: "動画ウィンドウ", name: "A-B リピート (▼で区間指定)", defaultShortcut: "A",        defaultMouse: "",                     defaultGesture: "" },
     { id: "video.speed_up",          category: "動画ウィンドウ", name: "再生速度を上げる",          defaultShortcut: "+",          defaultMouse: "",                     defaultGesture: "" },
     { id: "video.speed_down",        category: "動画ウィンドウ", name: "再生速度を下げる",          defaultShortcut: "-",          defaultMouse: "",                     defaultGesture: "" },
     { id: "video.speed_reset",       category: "動画ウィンドウ", name: "再生速度をリセット",        defaultShortcut: "0",          defaultMouse: "",                     defaultGesture: "" },

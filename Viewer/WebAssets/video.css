@@ -144,6 +144,38 @@ body { display: flex; flex-direction: row; }
 }
 .seek-tip.show { opacity: 1; }
 
+/* シークバーのサムネイルプレビュー（YouTube 風）。ホバー/スクラブ/A-B ドラッグ中に出す。 */
+.seek-preview {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: 10px;
+  transform: translateX(-50%);
+  background: rgba(20, 24, 34, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  padding: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+  z-index: 4;
+}
+.seek-preview.show { opacity: 1; }
+.seek-preview-canvas {
+  display: block;
+  border-radius: 4px;
+  background: #000;
+  width: 168px;   /* 高さは JS がアスペクト比に合わせて設定 */
+  height: auto;
+}
+.seek-preview-label {
+  text-align: center;
+  font-size: 12px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  margin-top: 3px;
+}
+
 /* ---- A-B マーカー（▼）。トラックの真上に置き、ドラッグで区間を変える ---- */
 .ab-mark {
   position: absolute;

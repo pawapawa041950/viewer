@@ -77,6 +77,7 @@
     vid.classList.remove('hidden');
     clearAb(); // A-B 区間は動画ごとの情報なので切替時に解除（ループ設定は維持）
     vid.src = srcUrl(path);
+    setPreviewSrc(srcUrl(path));
     seekBuffered.style.width = '0%';
     updateProgress();
     revealUi();
@@ -286,13 +287,78 @@
     const ratio = r.width > 0 ? (x - r.left) / r.width : 0;
     return Math.max(0, Math.min(1, ratio)) * duration();
   }
+  // ---- シークバーのサムネイルプレビュー（YouTube 風） ----
+  // 非表示の 2 本目の <video> を対象時刻へシークし、フレームを canvas に描いてポップアップ表示。
+  // ページ(app.viewer)と動画(file.viewer)は別オリジンだが、canvas は「表示のみ」で
+  // ピクセルを読み出さない（toDataURL 等をしない）ため tainted でも描画・表示できる。
+  const previewVid = document.createElement('video');
+  previewVid.muted = true;
+  previewVid.preload = 'auto';
+  previewVid.playsInline = true;
+  const pvBox = document.getElementById('seekPreview');
+  const pvCanvas = document.getElementById('seekPreviewCanvas');
+  const pvLabel = document.getElementById('seekPreviewLabel');
+  const pvCtx = pvCanvas.getContext('2d');
+  const PV_W = 168; // 表示幅(px)。高さは動画のアスペクト比から算出。
+  let pvReady = false, pvSeeking = false, pvWantTime = null;
+
+  function setPreviewSrc(url) {
+    pvReady = false; pvSeeking = false; pvWantTime = null;
+    previewVid.src = url;
+  }
+  previewVid.addEventListener('loadeddata', () => { pvReady = true; });
+  previewVid.addEventListener('seeked', () => {
+    drawPreviewFrame();
+    pvSeeking = false;
+    if (pvWantTime !== null) pumpPreview();
+  });
+  function drawPreviewFrame() {
+    const vw = previewVid.videoWidth, vh = previewVid.videoHeight;
+    if (!vw || !vh) return;
+    const h = Math.max(1, Math.round(PV_W * vh / vw));
+    if (pvCanvas.width !== PV_W || pvCanvas.height !== h) { pvCanvas.width = PV_W; pvCanvas.height = h; }
+    try { pvCtx.drawImage(previewVid, 0, 0, PV_W, h); } catch (e) { /* 一部フレームで失敗しても無視 */ }
+  }
+  function pumpPreview() {
+    if (pvWantTime === null || !pvReady) return;
+    pvSeeking = true;
+    const t = pvWantTime; pvWantTime = null;
+    try { previewVid.currentTime = t; } catch (e) { pvSeeking = false; }
+  }
+  // 対象時刻のフレームを要求（連続要求は最新だけ処理＝ドラッグ中も軽い）。preview 不可なら false。
+  function requestPreview(t) {
+    if (!pvReady) return false;
+    pvWantTime = t;
+    if (!pvSeeking) pumpPreview();
+    return true;
+  }
+  // ポップアップの水平位置。画面外へはみ出さないよう seek バー幅でクランプする。
+  function positionPreview(pct) {
+    const seekW = seekEl.clientWidth || 1;
+    const halfW = (pvBox.offsetWidth || PV_W + 10) / 2;
+    let px = (pct / 100) * seekW;
+    px = Math.max(halfW, Math.min(seekW - halfW, px));
+    pvBox.style.left = px + 'px';
+  }
+
   function showSeekTip(t, text) {
     const d = duration();
-    seekTip.textContent = text || fmtClock(t);
-    seekTip.style.left = (d > 0 ? (t / d) * 100 : 0) + '%';
-    seekTip.classList.add('show');
+    const pct = d > 0 ? (t / d) * 100 : 0;
+    const label = text || fmtClock(t);
+    // サムネイルが出せるならサムネ＋ラベルを表示し、素の時刻チップは隠す。
+    // 出せない（メタデータ未読込等）ときは従来の時刻チップにフォールバック。
+    if (requestPreview(t)) {
+      pvLabel.textContent = label;
+      pvBox.classList.add('show');
+      positionPreview(pct);
+      seekTip.classList.remove('show');
+    } else {
+      seekTip.textContent = label;
+      seekTip.style.left = pct + '%';
+      seekTip.classList.add('show');
+    }
   }
-  function hideSeekTip() { seekTip.classList.remove('show'); }
+  function hideSeekTip() { seekTip.classList.remove('show'); pvBox.classList.remove('show'); }
 
   function updateProgress() {
     const d = duration();

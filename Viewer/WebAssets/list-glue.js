@@ -233,6 +233,10 @@
 
   function parentOf(p) {
     const norm = p.replace(/[\\/]+$/, '');
+    if (/^[\\/]{2}[^\\/]+$/.test(norm)) return null;          // \\server（UNC のサーバー直下）に親は無い
+    if (/^[\\/]{2}[^\\/]+[\\/][^\\/]+$/.test(norm)) {          // \\server\share → \\server（共有一覧）
+      return norm.slice(0, Math.max(norm.lastIndexOf('\\'), norm.lastIndexOf('/')));
+    }
     const idx = Math.max(norm.lastIndexOf('\\'), norm.lastIndexOf('/'));
     if (idx <= 2) return idx >= 0 ? norm.slice(0, idx + 1) : null; // ドライブ直下
     return norm.slice(0, idx);

@@ -30,6 +30,14 @@ public static class ListingService
     public static List<FolderEntry> GetFolderTree(string path)
     {
         var result = new List<FolderEntry>();
+        // UNC のサーバー直下（\server）は共有一覧を子フォルダーとして返す。
+        if (NetworkShares.IsServerRoot(path))
+        {
+            var root = NetworkShares.Normalize(path);
+            foreach (var share in NetworkShares.EnumerateShares(NetworkShares.ServerOf(path)!))
+                result.Add(new FolderEntry { Path = root + "\\" + share, Name = share, HasChildren = true });
+            return result;
+        }
         DirectoryInfo[] dirs;
         try { dirs = new DirectoryInfo(path).GetDirectories(); }
         catch { return result; }
@@ -52,6 +60,17 @@ public static class ListingService
     {
         var folders = new List<FileEntry>();
         var files = new List<FileEntry>();
+
+        // UNC のサーバー直下（\server）：Directory.Exists が false で列挙できないため、
+        // NetShareEnum で取った共有一覧をフォルダーとして返す。
+        if (NetworkShares.IsServerRoot(path))
+        {
+            var root = NetworkShares.Normalize(path);
+            foreach (var share in NetworkShares.EnumerateShares(NetworkShares.ServerOf(path)!))
+                folders.Add(new FileEntry { Path = root + "\\" + share, Name = share, IsDir = true });
+            if (sortMode == "name_desc") folders.Reverse();
+            return folders;
+        }
 
         DirectoryInfo dirInfo;
         try { dirInfo = new DirectoryInfo(path); }

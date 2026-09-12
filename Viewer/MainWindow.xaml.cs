@@ -476,7 +476,7 @@ public partial class MainWindow : Window
             // 全タブを非アクティブ（Hidden）で初期化だけ行い、最後に対象タブだけをアクティブ化する。
             foreach (var f in _settings.OpenTabs)
             {
-                var folder = (!string.IsNullOrEmpty(f) && Directory.Exists(f)) ? f : "";
+                var folder = (!string.IsNullOrEmpty(f) && (Directory.Exists(f) || Backend.NetworkShares.IsServerRoot(f))) ? f : "";
                 await CreateTabAsync(folder, activate: false);
             }
             var idx = Math.Clamp(_settings.ActiveTabIndex, 0, _tabs.Count - 1);
@@ -514,7 +514,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(path)) { if (!isInitial) return; await EnsureBaseTabAsync(); return; }
 
         // フォルダー：一覧で開く。
-        if (Directory.Exists(path)) { await OpenFolderInListAsync(path, isInitial); return; }
+        if (Directory.Exists(path) || Backend.NetworkShares.IsServerRoot(path)) { await OpenFolderInListAsync(path, isInitial); return; }
 
         if (!File.Exists(path))
         {
@@ -1277,6 +1277,14 @@ public partial class MainWindow : Window
             if (string.IsNullOrEmpty(p)) return (object?)new { kind = "none" };
             try
             {
+                // "\server"（UNC のサーバー直下）は共有一覧が取れれば「フォルダー」として開く。
+                if (Backend.NetworkShares.IsServerRoot(p))
+                {
+                    var shares = Backend.NetworkShares.EnumerateShares(Backend.NetworkShares.ServerOf(p)!);
+                    return (object?)(shares.Count > 0
+                        ? new { kind = "folder", path = Backend.NetworkShares.Normalize(p) }
+                        : new { kind = "none", path = "" });
+                }
                 if (Directory.Exists(p)) return (object?)new { kind = "folder", path = Path.GetFullPath(p) };
                 if (File.Exists(p) && FileTypes.IsArchive(p)) return (object?)new { kind = "archive", path = Path.GetFullPath(p) };
             }
@@ -2185,6 +2193,13 @@ public partial class MainWindow : Window
         tab.Watcher = null;
         tab.WatchedFolder = "";
 
+        if (Backend.NetworkShares.IsServerRoot(path))
+        {
+            // \server（共有一覧）は FileSystemWatcher で監視できない。現在フォルダーとしてだけ記録する。
+            tab.CurrentFolder = path;
+            tab.DetailsBridge?.EmitEvent("folder_changed", new { path = "" });
+            return;
+        }
         if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
         {
             // 書庫内など監視対象が無い場合でも、このタブの詳細ペインへ通知（タグ再構築）。

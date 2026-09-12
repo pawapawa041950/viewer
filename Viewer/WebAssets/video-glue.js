@@ -11,8 +11,8 @@
   const overlayResizer = document.getElementById('overlayResizer');
   const sideBtns = document.getElementById('sideBtns');
   const detailBtn = document.getElementById('detailBtn');
-  const modeBtn = document.getElementById('modeBtn');
-  const modeMenu = document.getElementById('modeMenu');
+  const loopBtn = document.getElementById('loopBtn');
+  const contBtn = document.getElementById('contBtn');
   const abBtn = document.getElementById('abBtn');
   const hintEl = document.getElementById('hint');
   const stage = document.getElementById('stage');
@@ -42,9 +42,9 @@
   // 連続再生用プレイリスト（ファイル一覧ペインの表示順＝ソート・タグフィルター適用後）。
   // 一覧側の更新（ソート変更・フォルダー更新）に video_list_changed で追従する。
   let playlist = [];
-  // 再生モード（ループボタンで循環）: 'loop'=同じ動画を繰り返し /
-  // 'continuous'=一覧の次の動画へ / 'single'=1本で停止。
-  let playMode = 'loop';
+  // 再生モード（独立した 2 つの On/Off。組み合わせで挙動が決まる。詳細は setPlayMode 付近）
+  let loopOn = true;
+  let contOn = false;
 
   // ホストからの設定を反映（video_ready の初期値 / video_settings_changed のライブ変更）。
   function applySettings(s, initial) {
@@ -52,7 +52,7 @@
     if (typeof s.seek_seconds === 'number' && s.seek_seconds > 0) seekSeconds = s.seek_seconds;
     vid.autoplay = s.autoplay !== false;
     if (initial) {
-      setPlayMode(s.loop_default ? 'loop' : 'single');
+      setPlayMode(!!s.loop_default, false);
       if (typeof s.volume === 'number') vid.volume = Math.max(0, Math.min(1, s.volume));
       vid.muted = !!s.muted;
     }
@@ -142,8 +142,7 @@
     revealTimer = setTimeout(hideUiIfIdle, 2000);
   }
   function hideUiIfIdle() {
-    if (vid.paused || overControls || scrubbing || abDrag
-        || !rateMenu.classList.contains('hidden') || !modeMenu.classList.contains('hidden')) { revealTimer = setTimeout(hideUiIfIdle, 1000); return; }
+    if (vid.paused || overControls || scrubbing || abDrag || !rateMenu.classList.contains('hidden')) { revealTimer = setTimeout(hideUiIfIdle, 1000); return; }
     sideBtns.classList.remove('show');
     controls.classList.remove('show');
     stage.classList.add('idle');
@@ -154,53 +153,49 @@
   vid.addEventListener('pause', revealUi);
   detailBtn.addEventListener('click', toggleOverlay);
 
-  // ---- 再生モード（ループ → 連続 → 単発 の循環）----
-  // ループ  : 同じ動画を繰り返す（<video> の loop でギャップ最小）
-  // 連続    : 再生し終わったらファイル一覧の並び順で次の動画へ（末尾からは先頭へ戻る）
-  // 単発    : 終端で停止（何もしない）
-  // 表示は「再生モード: [モード]」の文字。ボタンで一覧（ドロップダウン）を出して選ぶ。
-  const MODE_ORDER = ['loop', 'continuous', 'single'];
-  const MODE_LABEL = { loop: 'ループ', continuous: '連続再生', single: '単発' };
-  // メニュー項目を一度だけ生成（速度メニューと同じ .rate-menu / .rate-item を流用）。
-  MODE_ORDER.forEach((m) => {
-    const item = document.createElement('div');
-    item.className = 'rate-item';
-    item.dataset.mode = m;
-    item.textContent = MODE_LABEL[m];
-    item.addEventListener('click', () => { setPlayMode(m); closeModeMenu(); });
-    modeMenu.appendChild(item);
-  });
-  function setPlayMode(mode) {
-    playMode = MODE_LABEL[mode] ? mode : 'single';
-    vid.loop = playMode === 'loop';
-    modeBtn.textContent = '再生モード: ' + MODE_LABEL[playMode];
-    modeMenu.querySelectorAll('.rate-item').forEach((el) => {
-      el.classList.toggle('active', el.dataset.mode === playMode);
-    });
+  // ---- 再生モード（ループ / 連続再生 の独立した 2 つの On/Off トグル）----
+  // ループ On  / 連続 Off : 同じ動画を繰り返す（<video> の loop でギャップ最小）
+  // ループ Off / 連続 On  : 再生し終わったら一覧の並び順で次の動画へ。最後の動画で停止
+  // ループ On  / 連続 On  : 次の動画へ進み、最後の動画が終わったら最初の動画へ戻る
+  // 両方 Off             : 単発（終端で停止）
+  function setPlayMode(loop, cont) {
+    loopOn = !!loop;
+    contOn = !!cont;
+    vid.loop = loopOn && !contOn;
+    loopBtn.classList.toggle('active', loopOn);
+    contBtn.classList.toggle('active', contOn);
   }
-  function openModeMenu() { modeMenu.classList.remove('hidden'); }
-  function closeModeMenu() { modeMenu.classList.add('hidden'); }
-  function toggleModeMenu() { modeMenu.classList.contains('hidden') ? openModeMenu() : closeModeMenu(); }
-  modeBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleModeMenu(); });
-  document.addEventListener('mousedown', (e) => {
-    if (!modeMenu.classList.contains('hidden') && !e.target.closest('.mode-wrap')) closeModeMenu();
-  });
-  // R キー: 従来どおり ループ → 連続 → 単発 を循環
-  function cyclePlayMode() {
-    const next = MODE_ORDER[(MODE_ORDER.indexOf(playMode) + 1) % MODE_ORDER.length];
-    setPlayMode(next);
-    showHint('再生モード: ' + MODE_LABEL[next]);
+  function toggleLoop() {
+    setPlayMode(!loopOn, contOn);
+    showHint(loopOn ? 'ループ再生: On' : 'ループ再生: Off');
   }
-  // 互換名（ショートカット登録で使用）
-  const toggleLoop = cyclePlayMode;
+  function toggleContinuous() {
+    setPlayMode(loopOn, !contOn);
+    showHint(contOn ? '連続再生: On' : '連続再生: Off');
+  }
+  loopBtn.addEventListener('click', toggleLoop);
+  contBtn.addEventListener('click', toggleContinuous);
 
-  // 連続再生：一覧の並び順で次の動画を再生する（末尾は先頭へ戻る）。
-  function playNextInList() {
+  // 連続再生：一覧の並び順で次の動画を再生する。
+  // wrap=true なら末尾の次は先頭へ戻る（ループ On）。false なら末尾で終わり（何もしない）。
+  function playNextInList(wrap) {
     if (playlist.length === 0) return false;
     const cur = current ? current.path : null;
     let idx = cur ? playlist.findIndex((p) => p.toLowerCase() === cur.toLowerCase()) : -1;
-    const next = playlist[(idx + 1) % playlist.length]; // 見つからない場合(-1)は先頭から
-    if (!next || (cur && next.toLowerCase() === cur.toLowerCase() && playlist.length === 1)) return false;
+    let nextIdx = idx + 1; // 見つからない場合(-1)は先頭から
+    if (nextIdx >= playlist.length) {
+      if (!wrap) return false;
+      nextIdx = 0;
+    }
+    const next = playlist[nextIdx];
+    if (!next) return false;
+    if (cur && next.toLowerCase() === cur.toLowerCase()) {
+      // 一覧に 1 本しかない場合：ループ On なら頭出しして再生、Off なら停止
+      if (!wrap) return false;
+      vid.currentTime = 0;
+      vid.play().catch(() => {});
+      return true;
+    }
     load(next);
     vid.play().catch(() => {});
     return true;
@@ -255,10 +250,11 @@
     requestAnimationFrame(abTick);
   })();
   // 終端到達時の挙動。A-B リピート中はそれを最優先（B 点が末尾付近で ended が先に来るケース）、
-  // それ以外は再生モードに従う（連続再生なら一覧の次の動画へ）。
+  // それ以外は再生モードに従う（連続再生なら一覧の次の動画へ。ループ On なら末尾から先頭へ戻る）。
+  // ループ On / 連続 Off は <video>.loop が効くので ended は発生しない。
   vid.addEventListener('ended', () => {
     if (abActive()) { vid.currentTime = abA; vid.play().catch(() => {}); return; }
-    if (playMode === 'continuous') playNextInList();
+    if (contOn) playNextInList(loopOn);
   });
 
   // ▼ マーカーのドラッグ。A/B は互いを追い越せない（最小間隔を保つ）。
@@ -562,6 +558,7 @@
       'video.volume_down': () => setVolume(vid.volume - 0.05),
       'video.toggle_mute': () => toggleMute(),
       'video.toggle_loop': () => toggleLoop(),
+      'video.toggle_continuous': () => toggleContinuous(),
       'video.ab_repeat': () => cycleAb(),
       'video.speed_up': () => setRate(vid.playbackRate + 0.25),
       'video.speed_down': () => setRate(vid.playbackRate - 0.25),

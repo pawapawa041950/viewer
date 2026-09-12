@@ -422,9 +422,18 @@ public partial class MainWindow : Window
         // Chromium の自動再生ポリシーを解除。既定では「ユーザー操作なしの音声付き自動再生」が
         // ブロックされるため、動画ウィンドウの「開いたとき自動で再生」設定が効かない。
         // 再生するかどうかはアプリ側（video-glue の autoplay 設定反映）で制御する。
+        //
+        // --disable-direct-composition:
+        // WebView2 Runtime 152 で、<video> 再生中はページ側の変更（動画ウィンドウのコントロールバー
+        // やヒントの表示など）が画面に反映されず、クリックや詳細ペイン開閉で初めて描画される症状が
+        // 出る（DOM/スタイルは正しく、rAF も回っているのに DirectComposition 経路で提示されない）。
+        // --disable-direct-composition-video-overlays では直らず、DirectComposition 自体を止めると直る。
+        // 描画は引き続き GPU（D3D11 スワップチェーン）で行われる。
         var envOptions = new CoreWebView2EnvironmentOptions
         {
-            AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
+            AdditionalBrowserArguments =
+                "--autoplay-policy=no-user-gesture-required " +
+                "--disable-direct-composition",
         };
         _env = await CoreWebView2Environment.CreateAsync(null, userData, envOptions);
 

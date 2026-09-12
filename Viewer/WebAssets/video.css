@@ -73,12 +73,7 @@ body { display: flex; flex-direction: row; }
   transition: opacity 0.25s;
   pointer-events: none;
   user-select: none;
-  /* 再生中の <video>（HW 合成）の上に重ねる要素は独立レイヤーへ昇格させる。
-     これが無いと opacity の変化がクラス上は反映されても再描画されず、
-     「見えないがポインタは反応する」状態になる（WebView2 の合成バグ対策）。 */
   z-index: 150;
-  will-change: opacity;
-  transform: translateZ(0);
 }
 .controls.show { opacity: 1; pointer-events: auto; }
 
@@ -241,13 +236,12 @@ body { display: flex; flex-direction: row; }
 .ctl-btn.rate { width: auto; padding: 0 8px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 /* テキスト表示のボタン（再生モード / A-B）。ctl-btn の意匠のまま幅だけ内容に合わせる。 */
 .ctl-btn.text { width: auto; padding: 0 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-/* 再生モードは最長ラベル（連続再生）の幅で固定し、モード切替で右隣の A-B がずれないようにする */
-#modeBtn { min-width: 136px; justify-content: flex-start; }
+/* On/Off トグル（ループ / 連続再生）。On は速度メニューの選択色と同じ水色で示す */
+.ctl-btn.toggle.active { color: #6cf; background: rgba(102, 204, 255, 0.18); }
+.ctl-btn.toggle.active:hover { background: rgba(102, 204, 255, 0.28); }
 /* A-B リピート ON はシークバーのマーカー色（琥珀）で示す */
 .ctl-btn.ab.active { color: #ffcc66; background: rgba(255, 204, 102, 0.18); }
 .ctl-btn.ab.active:hover { background: rgba(255, 204, 102, 0.28); }
-/* 再生モードのドロップダウン（速度メニューと同じ見た目・同じ .rate-menu を流用） */
-.mode-wrap { position: relative; display: flex; align-items: center; }
 /* 再生速度ドロップダウン（ボタンの上に開く） */
 .rate-wrap { position: relative; display: flex; align-items: center; }
 .rate-menu {
@@ -330,8 +324,6 @@ body { display: flex; flex-direction: row; }
   opacity: 0;
   transition: opacity 0.25s;
   pointer-events: none;
-  will-change: opacity;
-  transform: translateZ(0);
 }
 .side-btns.show { opacity: 1; pointer-events: auto; }
 .side-btn {

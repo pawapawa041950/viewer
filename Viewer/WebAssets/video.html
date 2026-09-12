@@ -38,10 +38,13 @@
           <svg viewBox="0 0 24 24"><path id="playIcon" d="M8 5v14l11-7z"/></svg>
         </button>
         <span id="timeLabel" class="time">0:00 / 0:00</span>
-        <div class="mode-wrap">
-          <button id="modeBtn" class="ctl-btn text" tabindex="-1" title="再生モード（クリックで一覧 / R で切替）">再生モード: ループ</button>
-          <div id="modeMenu" class="rate-menu hidden"></div>
-        </div>
+        <!-- ループ / 連続再生 は独立した On/Off トグル（両方 On = 一覧を最後まで再生したら先頭へ戻る） -->
+        <button id="loopBtn" class="ctl-btn toggle" tabindex="-1" title="ループ再生 On/Off (R)：連続再生 On のときは最後の動画の後に最初へ戻る">
+          <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+        </button>
+        <button id="contBtn" class="ctl-btn toggle" tabindex="-1" title="連続再生 On/Off (N)：再生し終わったら一覧の次の動画へ（最後の動画で停止。ループ On なら先頭へ戻る）">
+          <svg viewBox="0 0 24 24"><path d="M3 6h11v2H3V6zm0 4h11v2H3v-2zm0 4h7v2H3v-2zm11 0v6l5-3-5-3zm6-8h2v14h-2V6z"/></svg>
+        </button>
         <button id="abBtn" class="ctl-btn text ab" tabindex="-1" title="A-B リピート (A)：クリックでシークバーに ▼ を出し、ドラッグで区間を設定">A-B</button>
         <div class="ctl-spacer"></div>
         <button id="muteBtn" class="ctl-btn" tabindex="-1" title="ミュート (M)">

@@ -976,11 +976,17 @@ public partial class MainWindow : Window
     // ---- 画像配信（https://file.viewer/raw?p=<urlencoded full path>） ----
     // 読み込み（書庫展開・ファイル読み・TIFF変換）はバックグラウンドで行い UI を固めない（NIO）。
     // GetDeferral でレスポンス確定を遅延し、await 後（UIスレッド）にレスポンスを生成する。
+    // ※ async void なので、await 後（UI スレッド）で例外が漏れるとアプリごと落ちる。
+    //   遅いサムネイル生成中にフォルダーを移動すると、WebView2 側で既に破棄されたリクエストへ
+    //   応答／完了を返すことになり COM 例外（SEHException 等）が出得るため、応答設定と
+    //   deferral.Complete() を含めてすべて握りつぶす（応答できなくても WebView2 側は
+    //   リクエストを破棄済みなので実害はない）。
     private async void OnFileResourceRequested(CoreWebView2Environment env, CoreWebView2WebResourceRequestedEventArgs args)
     {
-        var deferral = args.GetDeferral();
+        CoreWebView2Deferral? deferral = null;
         try
         {
+            deferral = args.GetDeferral();
             var uriStr = args.Request.Uri;
 
             // 動画本体（t= サムネイル要求なし）は Range 対応でストリーミング配信（<video> 用・仕様 §4.6）。
@@ -1006,7 +1012,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            deferral.Complete();
+            try { deferral?.Complete(); } catch { /* 破棄済みリクエスト等 */ }
         }
     }
 
@@ -1058,6 +1064,17 @@ public partial class MainWindow : Window
             return;
         }
         if (end >= total) end = total - 1;
+
+        // WebView2 は WebResourceRequested の応答ストリームを丸ごとメモリへ読み出す。
+        // <video> は最初のリクエストで "Range: bytes=0-"（＝ファイル末尾まで）を送ってくるため、
+        // 要求どおりに応えると数 GB の動画で確保に失敗し、Chromium の OOM 例外
+        // （0xE0000008 / EmbeddedBrowserWebView.dll）でプロセスごと落ちる。
+        // 要求された範囲より短く返すのは HTTP 的に正当で、Chromium は続きを改めて Range で要求する。
+        if (end - start + 1 > MaxResponseChunk)
+        {
+            end = start + MaxResponseChunk - 1;
+            partial = true; // 全体は返せないので 206 + Content-Range で「続きがある」ことを伝える
+        }
 
         fs.Position = start;
         long len = end - start + 1;
@@ -1177,8 +1194,15 @@ public partial class MainWindow : Window
             // 本体（t 無し）は OnFileResourceRequested が Range 対応でストリーミング配信済み。
             if (FileTypes.IsVideo(path))
             {
-                var vthumb = Shell.ShellThumbnail.GetPng(path, thumbMax > 0 ? thumbMax : 512);
-                return vthumb != null ? (vthumb, "image/png") : (null, "");
+                // シェルのサムネイル生成（Media Foundation）は重く、SMB 上の大きな動画では 1 本に
+                // 数十秒かかることがある。同時実行を絞ってメモリ／ハンドルの多重消費を抑える。
+                _videoThumbGate.Wait();
+                try
+                {
+                    var vthumb = Shell.ShellThumbnail.GetPng(path, thumbMax > 0 ? thumbMax : 512);
+                    return vthumb != null ? (vthumb, "image/png") : (null, "");
+                }
+                finally { _videoThumbGate.Release(); }
             }
             var fileBytes = File.ReadAllBytes(path);
             if (thumbMax > 0)
@@ -1201,6 +1225,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>クエリ文字列（"?p=...&..."）から指定キーの値を取り出す（System.Web 非依存）。</summary>
+    /// <summary>動画配信の 1 応答あたりの最大バイト数。WebView2 が応答ストリームを全部
+    /// メモリに載せるため、ファイルの大きさに関わらずここで必ず刻む。</summary>
+    private const long MaxResponseChunk = 8 * 1024 * 1024;
+
+    // 動画サムネイル生成の同時実行数（WebView2 は 1 ホストあたり最大 6 並列で画像を要求するが、
+    // 複数タブ／詳細ペイン分も重なるため上限を設ける）。
+    private static readonly System.Threading.SemaphoreSlim _videoThumbGate = new(3, 3);
+
     private static string? QueryParam(string query, string key)
     {
         if (string.IsNullOrEmpty(query)) return null;

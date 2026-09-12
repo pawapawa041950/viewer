@@ -11,7 +11,8 @@
   const overlayResizer = document.getElementById('overlayResizer');
   const sideBtns = document.getElementById('sideBtns');
   const detailBtn = document.getElementById('detailBtn');
-  const loopBtn = document.getElementById('loopBtn');
+  const modeBtn = document.getElementById('modeBtn');
+  const modeMenu = document.getElementById('modeMenu');
   const abBtn = document.getElementById('abBtn');
   const hintEl = document.getElementById('hint');
   const stage = document.getElementById('stage');
@@ -141,7 +142,8 @@
     revealTimer = setTimeout(hideUiIfIdle, 2000);
   }
   function hideUiIfIdle() {
-    if (vid.paused || overControls || scrubbing || abDrag || !rateMenu.classList.contains('hidden')) { revealTimer = setTimeout(hideUiIfIdle, 1000); return; }
+    if (vid.paused || overControls || scrubbing || abDrag
+        || !rateMenu.classList.contains('hidden') || !modeMenu.classList.contains('hidden')) { revealTimer = setTimeout(hideUiIfIdle, 1000); return; }
     sideBtns.classList.remove('show');
     controls.classList.remove('show');
     stage.classList.add('idle');
@@ -156,28 +158,41 @@
   // ループ  : 同じ動画を繰り返す（<video> の loop でギャップ最小）
   // 連続    : 再生し終わったらファイル一覧の並び順で次の動画へ（末尾からは先頭へ戻る）
   // 単発    : 終端で停止（何もしない）
-  const MODE_UI = {
-    loop:       { icon: '⟳', title: '再生モード: ループ（クリックで連続再生へ）',   cls: 'active' },
-    continuous: { icon: '⏭', title: '再生モード: 連続再生（クリックで単発再生へ）', cls: 'cont' },
-    single:     { icon: '❶', title: '再生モード: 単発（クリックでループへ）',       cls: '' },
-  };
+  // 表示は「再生モード: [モード]」の文字。ボタンで一覧（ドロップダウン）を出して選ぶ。
+  const MODE_ORDER = ['loop', 'continuous', 'single'];
+  const MODE_LABEL = { loop: 'ループ', continuous: '連続再生', single: '単発' };
+  // メニュー項目を一度だけ生成（速度メニューと同じ .rate-menu / .rate-item を流用）。
+  MODE_ORDER.forEach((m) => {
+    const item = document.createElement('div');
+    item.className = 'rate-item';
+    item.dataset.mode = m;
+    item.textContent = MODE_LABEL[m];
+    item.addEventListener('click', () => { setPlayMode(m); closeModeMenu(); });
+    modeMenu.appendChild(item);
+  });
   function setPlayMode(mode) {
-    playMode = MODE_UI[mode] ? mode : 'single';
+    playMode = MODE_LABEL[mode] ? mode : 'single';
     vid.loop = playMode === 'loop';
-    const ui = MODE_UI[playMode];
-    loopBtn.textContent = ui.icon;
-    loopBtn.title = ui.title;
-    loopBtn.classList.toggle('active', ui.cls === 'active');
-    loopBtn.classList.toggle('cont', ui.cls === 'cont');
+    modeBtn.textContent = '再生モード: ' + MODE_LABEL[playMode];
+    modeMenu.querySelectorAll('.rate-item').forEach((el) => {
+      el.classList.toggle('active', el.dataset.mode === playMode);
+    });
   }
+  function openModeMenu() { modeMenu.classList.remove('hidden'); }
+  function closeModeMenu() { modeMenu.classList.add('hidden'); }
+  function toggleModeMenu() { modeMenu.classList.contains('hidden') ? openModeMenu() : closeModeMenu(); }
+  modeBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleModeMenu(); });
+  document.addEventListener('mousedown', (e) => {
+    if (!modeMenu.classList.contains('hidden') && !e.target.closest('.mode-wrap')) closeModeMenu();
+  });
+  // R キー: 従来どおり ループ → 連続 → 単発 を循環
   function cyclePlayMode() {
-    const next = playMode === 'loop' ? 'continuous' : playMode === 'continuous' ? 'single' : 'loop';
+    const next = MODE_ORDER[(MODE_ORDER.indexOf(playMode) + 1) % MODE_ORDER.length];
     setPlayMode(next);
-    showHint(next === 'loop' ? 'ループ再生' : next === 'continuous' ? '連続再生' : '単発再生');
+    showHint('再生モード: ' + MODE_LABEL[next]);
   }
   // 互換名（ショートカット登録で使用）
   const toggleLoop = cyclePlayMode;
-  loopBtn.addEventListener('click', cyclePlayMode);
 
   // 連続再生：一覧の並び順で次の動画を再生する（末尾は先頭へ戻る）。
   function playNextInList() {

@@ -38,6 +38,11 @@
           <svg viewBox="0 0 24 24"><path id="playIcon" d="M8 5v14l11-7z"/></svg>
         </button>
         <span id="timeLabel" class="time">0:00 / 0:00</span>
+        <div class="mode-wrap">
+          <button id="modeBtn" class="ctl-btn text" tabindex="-1" title="再生モード（クリックで一覧 / R で切替）">再生モード: ループ</button>
+          <div id="modeMenu" class="rate-menu hidden"></div>
+        </div>
+        <button id="abBtn" class="ctl-btn text ab" tabindex="-1" title="A-B リピート (A)：クリックでシークバーに ▼ を出し、ドラッグで区間を設定">A-B</button>
         <div class="ctl-spacer"></div>
         <button id="muteBtn" class="ctl-btn" tabindex="-1" title="ミュート (M)">
           <svg viewBox="0 0 24 24"><path id="volIcon" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
@@ -56,11 +61,9 @@
   <div id="overlayResizer" class="overlay-resizer hidden"></div>
   <div id="overlay" class="overlay hidden"></div>
 
-  <!-- 左上ボタン群（マウス移動時のみ表示）：詳細ペイン / ループ / A-B リピート -->
+  <!-- 左上ボタン群（マウス移動時のみ表示）：詳細ペイン開閉。再生モード / A-B は下部コントローラーへ移動。 -->
   <div id="sideBtns" class="side-btns">
     <button id="detailBtn" class="side-btn" title="詳細ペインの表示/非表示 (D)">&#8505;</button>
-    <button id="loopBtn" class="side-btn" title="再生モード: ループ / 連続再生 / 単発 (R)">&#10227;</button>
-    <button id="abBtn" class="side-btn ab" title="A-B リピート (A)：シークバーの ▼ をドラッグして区間を設定">A-B</button>
   </div>
 
   <script src="shortcuts-catalog.js"></script>

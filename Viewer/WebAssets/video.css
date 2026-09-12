@@ -239,6 +239,15 @@ body { display: flex; flex-direction: row; }
 .ctl-btn:hover { background: rgba(255, 255, 255, 0.16); }
 .ctl-btn svg { width: 22px; height: 22px; fill: currentColor; }
 .ctl-btn.rate { width: auto; padding: 0 8px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* テキスト表示のボタン（再生モード / A-B）。ctl-btn の意匠のまま幅だけ内容に合わせる。 */
+.ctl-btn.text { width: auto; padding: 0 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+/* 再生モードは最長ラベル（連続再生）の幅で固定し、モード切替で右隣の A-B がずれないようにする */
+#modeBtn { min-width: 136px; justify-content: flex-start; }
+/* A-B リピート ON はシークバーのマーカー色（琥珀）で示す */
+.ctl-btn.ab.active { color: #ffcc66; background: rgba(255, 204, 102, 0.18); }
+.ctl-btn.ab.active:hover { background: rgba(255, 204, 102, 0.28); }
+/* 再生モードのドロップダウン（速度メニューと同じ見た目・同じ .rate-menu を流用） */
+.mode-wrap { position: relative; display: flex; align-items: center; }
 /* 再生速度ドロップダウン（ボタンの上に開く） */
 .rate-wrap { position: relative; display: flex; align-items: center; }
 .rate-menu {
@@ -345,18 +354,6 @@ body { display: flex; flex-direction: row; }
   background: rgba(120, 170, 255, 0.55);
   border-color: rgba(160, 200, 255, 0.85);
 }
-/* 連続再生モード（ループとは別色にして一目で区別できるようにする） */
-.side-btn.cont {
-  background: rgba(120, 220, 160, 0.5);
-  border-color: rgba(160, 240, 190, 0.85);
-}
-
-/* A-B リピート：A 点だけ設定済み（B 点待ち）の中間状態 */
-.side-btn.half {
-  background: rgba(255, 200, 100, 0.45);
-  border-color: rgba(255, 220, 150, 0.85);
-}
-.side-btn.ab { font-size: 14px; font-weight: bold; }
 
 /* 詳細ペイン（viewer.css と同意匠。テキストは選択・コピー可能） */
 .overlay {

@@ -33,6 +33,8 @@
   const videoLoopDefault = document.getElementById('video_loop_default');
   const videoAlwaysOnTop = document.getElementById('video_window_always_on_top');
   const videoSeekSeconds = document.getElementById('video_seek_seconds');
+  const videoSeekSecondsMedium = document.getElementById('video_seek_seconds_medium');
+  const videoSeekSecondsLarge = document.getElementById('video_seek_seconds_large');
 
   // 「決まったフォルダ」選択時だけパス入力／参照ボタンを有効化。
   function syncStartupEnabled() {
@@ -73,6 +75,8 @@
     videoLoopDefault.checked = !!s.video_loop_default;
     videoAlwaysOnTop.checked = s.video_window_always_on_top !== false;
     videoSeekSeconds.value = (typeof s.video_seek_seconds === 'number') ? s.video_seek_seconds : 5;
+    videoSeekSecondsMedium.value = (typeof s.video_seek_seconds_medium === 'number') ? s.video_seek_seconds_medium : 13;
+    videoSeekSecondsLarge.value = (typeof s.video_seek_seconds_large === 'number') ? s.video_seek_seconds_large : 58;
   }).catch(() => {});
 
   function bindCheckbox(el, key) {
@@ -94,14 +98,19 @@
   bindCheckbox(videoLoopDefault, 'video_loop_default');
   bindCheckbox(videoAlwaysOnTop, 'video_window_always_on_top');
 
-  // 動画のシーク秒数。
-  videoSeekSeconds.addEventListener('change', () => {
-    let v = parseInt(videoSeekSeconds.value, 10);
-    if (!(v >= 1)) v = 1;
-    if (v > 60) v = 60;
-    videoSeekSeconds.value = v;
-    invoke('set_setting', { key: 'video_seek_seconds', value: v }).catch(() => {});
-  });
+  // 動画のシーク秒数（少し / 普通 / 大きく）。
+  function bindSeekSeconds(el, key) {
+    el.addEventListener('change', () => {
+      let v = parseInt(el.value, 10);
+      if (!(v >= 1)) v = 1;
+      if (v > 999) v = 999;
+      el.value = v;
+      invoke('set_setting', { key, value: v }).catch(() => {});
+    });
+  }
+  bindSeekSeconds(videoSeekSeconds, 'video_seek_seconds');
+  bindSeekSeconds(videoSeekSecondsMedium, 'video_seek_seconds_medium');
+  bindSeekSeconds(videoSeekSecondsLarge, 'video_seek_seconds_large');
 
   // 事前読み枚数。
   preloadCount.addEventListener('change', () => {

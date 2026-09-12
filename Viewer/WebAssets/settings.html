@@ -158,12 +158,20 @@
         </label>
         <p class="hint">OFF にすると動画ウィンドウが独立し、メインウィンドウの背面に回せます。</p>
         <div class="field">
-          <div class="field-label">シーク秒数（←→ キー / ショートカット「少し進む・戻る」）</div>
+          <div class="field-label">シーク秒数（進む / 戻る の移動量）</div>
           <div class="row">
-            <input type="number" id="video_seek_seconds" class="num-input" min="1" max="60" />
+            <span class="unit">少し</span>
+            <input type="number" id="video_seek_seconds" class="num-input" min="1" max="999" />
+            <span class="unit">秒</span>
+            <span class="unit">普通</span>
+            <input type="number" id="video_seek_seconds_medium" class="num-input" min="1" max="999" />
+            <span class="unit">秒</span>
+            <span class="unit">大きく</span>
+            <input type="number" id="video_seek_seconds_large" class="num-input" min="1" max="999" />
             <span class="unit">秒</span>
           </div>
         </div>
+        <p class="hint">既定は ←→ キーが「少し」、Shift+←→ が「普通」、Ctrl+←→ が「大きく」です。ショートカット設定で変更できます。</p>
         <p class="hint">音量・ミュート状態と、ウィンドウの位置・サイズは自動で記憶されます。</p>
       </section>
     </main>

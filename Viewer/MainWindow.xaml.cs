@@ -253,6 +253,8 @@ public partial class MainWindow : Window
         video_autoplay = _settings.VideoAutoplay,
         video_loop_default = _settings.VideoLoopDefault,
         video_seek_seconds = _settings.VideoSeekSeconds,
+        video_seek_seconds_medium = _settings.VideoSeekSecondsMedium,
+        video_seek_seconds_large = _settings.VideoSeekSecondsLarge,
         video_window_always_on_top = _settings.VideoWindowAlwaysOnTop,
     };
 
@@ -262,6 +264,8 @@ public partial class MainWindow : Window
         autoplay = _settings.VideoAutoplay,
         loop_default = _settings.VideoLoopDefault,
         seek_seconds = _settings.VideoSeekSeconds,
+        seek_seconds_medium = _settings.VideoSeekSecondsMedium,
+        seek_seconds_large = _settings.VideoSeekSecondsLarge,
         volume = _settings.VideoVolume,
         muted = _settings.VideoMuted,
     };
@@ -377,9 +381,15 @@ public partial class MainWindow : Window
                 SettingsService.Save(_settings);
                 break;
             case "video_seek_seconds":
+            case "video_seek_seconds_medium":
+            case "video_seek_seconds_large":
                 if (args.TryGetProperty("value", out var vs) && vs.TryGetInt32(out var vsec))
                 {
-                    _settings.VideoSeekSeconds = Math.Clamp(vsec, 1, 60);
+                    var clamped = Math.Clamp(vsec, 1, 999);
+                    var seekKey = Str(args, "key");
+                    if (seekKey == "video_seek_seconds") _settings.VideoSeekSeconds = clamped;
+                    else if (seekKey == "video_seek_seconds_medium") _settings.VideoSeekSecondsMedium = clamped;
+                    else _settings.VideoSeekSecondsLarge = clamped;
                     SettingsService.Save(_settings);
                     _videoBridge?.EmitEvent("video_settings_changed", VideoSettingsPayload());
                 }
@@ -1623,6 +1633,8 @@ public partial class MainWindow : Window
                     autoplay = _settings.VideoAutoplay,
                     loop_default = _settings.VideoLoopDefault,
                     seek_seconds = _settings.VideoSeekSeconds,
+                    seek_seconds_medium = _settings.VideoSeekSecondsMedium,
+                    seek_seconds_large = _settings.VideoSeekSecondsLarge,
                     volume = _settings.VideoVolume,
                     muted = _settings.VideoMuted,
                 };

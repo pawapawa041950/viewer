@@ -11,6 +11,8 @@
   const overlayResizer = document.getElementById('overlayResizer');
   const sideBtns = document.getElementById('sideBtns');
   const detailBtn = document.getElementById('detailBtn');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
   const loopBtn = document.getElementById('loopBtn');
   const contBtn = document.getElementById('contBtn');
   const abBtn = document.getElementById('abBtn');
@@ -38,7 +40,10 @@
   const fsIcon = document.getElementById('fsIcon');
 
   let current = null;    // { path }
-  let seekSeconds = 5;   // 矢印キーのシーク秒数（設定・仕様 §9）
+  // シーク秒数（設定画面で変更可能）：少し / 普通 / 大きく
+  let seekSeconds = 5;
+  let seekSecondsMedium = 13;
+  let seekSecondsLarge = 58;
   // 連続再生用プレイリスト（ファイル一覧ペインの表示順＝ソート・タグフィルター適用後）。
   // 一覧側の更新（ソート変更・フォルダー更新）に video_list_changed で追従する。
   let playlist = [];
@@ -50,6 +55,8 @@
   function applySettings(s, initial) {
     if (!s) return;
     if (typeof s.seek_seconds === 'number' && s.seek_seconds > 0) seekSeconds = s.seek_seconds;
+    if (typeof s.seek_seconds_medium === 'number' && s.seek_seconds_medium > 0) seekSecondsMedium = s.seek_seconds_medium;
+    if (typeof s.seek_seconds_large === 'number' && s.seek_seconds_large > 0) seekSecondsLarge = s.seek_seconds_large;
     vid.autoplay = s.autoplay !== false;
     if (initial) {
       setPlayMode(!!s.loop_default, false);
@@ -200,6 +207,25 @@
     vid.play().catch(() => {});
     return true;
   }
+
+  // 前の動画 / 次の動画（ボタン・ショートカット）。連続再生の On/Off に関係なく、
+  // ファイル一覧の並び順で移動する。末尾の次は先頭、先頭の前は末尾へ回る。
+  function stepVideo(delta) {
+    if (playlist.length === 0) { showHint('他に動画がありません'); return false; }
+    const cur = current ? current.path : null;
+    const idx = cur ? playlist.findIndex((p) => p.toLowerCase() === cur.toLowerCase()) : -1;
+    if (playlist.length === 1 && idx === 0) { showHint('他に動画がありません'); return false; }
+    const n = playlist.length;
+    const nextIdx = idx < 0 ? (delta > 0 ? 0 : n - 1) : (((idx + delta) % n) + n) % n;
+    const next = playlist[nextIdx];
+    if (!next) return false;
+    load(next);
+    vid.play().catch(() => {});
+    showHint((delta > 0 ? '次の動画: ' : '前の動画: ') + baseName(next) + ' (' + (nextIdx + 1) + '/' + n + ')');
+    return true;
+  }
+  prevBtn.addEventListener('click', () => stepVideo(-1));
+  nextBtn.addEventListener('click', () => stepVideo(1));
 
   // ---- A-B リピート（シークバー上の ▼ マーカーで区間指定） ----
   // A-B ボタン / A キーで ON/OFF。ON にすると A=現在位置・B=末尾 でマーカーを出し、
@@ -516,6 +542,7 @@
   function seekBy(sec) {
     const max = isFinite(vid.duration) ? vid.duration : Infinity;
     vid.currentTime = Math.max(0, Math.min(max, vid.currentTime + sec));
+    showHint((sec >= 0 ? '+' : '−') + Math.abs(sec) + ' 秒');
   }
   function setVolume(v) {
     vid.muted = false;
@@ -554,6 +581,12 @@
       'video.play_pause': () => playPause(),
       'video.seek_forward': () => seekBy(seekSeconds),
       'video.seek_back': () => seekBy(-seekSeconds),
+      'video.seek_forward_medium': () => seekBy(seekSecondsMedium),
+      'video.seek_back_medium': () => seekBy(-seekSecondsMedium),
+      'video.seek_forward_large': () => seekBy(seekSecondsLarge),
+      'video.seek_back_large': () => seekBy(-seekSecondsLarge),
+      'video.next_video': () => stepVideo(1),
+      'video.prev_video': () => stepVideo(-1),
       'video.volume_up': () => setVolume(vid.volume + 0.05),
       'video.volume_down': () => setVolume(vid.volume - 0.05),
       'video.toggle_mute': () => toggleMute(),

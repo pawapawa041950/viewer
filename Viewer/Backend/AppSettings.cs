@@ -66,7 +66,9 @@ public sealed class AppSettings
     public bool VideoWindowAlwaysOnTop { get; set; } = true; // メインウィンドウの前に常に表示
     public bool VideoAutoplay { get; set; } = true;          // 開いたとき自動で再生を開始
     public bool VideoLoopDefault { get; set; }               // 繰り返し再生を既定で ON
-    public int VideoSeekSeconds { get; set; } = 5;           // 矢印キーのシーク秒数(1-60)
+    public int VideoSeekSeconds { get; set; } = 5;           // 「少し進む/戻る」のシーク秒数(1-999)
+    public int VideoSeekSecondsMedium { get; set; } = 13;    // 「普通に進む/戻る」のシーク秒数(1-999)
+    public int VideoSeekSecondsLarge { get; set; } = 58;     // 「大きく進む/戻る」のシーク秒数(1-999)
     public double VideoVolume { get; set; } = 1.0;           // 音量（自動記憶）
     public bool VideoMuted { get; set; }                     // ミュート状態（自動記憶）
 

@@ -38,6 +38,13 @@
           <svg viewBox="0 0 24 24"><path id="playIcon" d="M8 5v14l11-7z"/></svg>
         </button>
         <span id="timeLabel" class="time">0:00 / 0:00</span>
+        <!-- 前の動画 / 次の動画（ファイル一覧の並び順。連続再生の On/Off に関係なく使える） -->
+        <button id="prevBtn" class="ctl-btn" tabindex="-1" title="前の動画 (PageUp)">
+          <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6V6zm3.5 6 8.5 6V6l-8.5 6z"/></svg>
+        </button>
+        <button id="nextBtn" class="ctl-btn" tabindex="-1" title="次の動画 (PageDown)">
+          <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6h2v12h-2V6z"/></svg>
+        </button>
         <!-- ループ / 連続再生 は独立した On/Off トグル（両方 On = 一覧を最後まで再生したら先頭へ戻る） -->
         <button id="loopBtn" class="ctl-btn toggle" tabindex="-1" title="ループ再生 On/Off (R)：連続再生 On のときは最後の動画の後に最初へ戻る">
           <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>

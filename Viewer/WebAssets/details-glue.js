@@ -128,11 +128,16 @@
     }
   }
 
+  // フォルダー/書庫の「中の 1 枚目」プレビュー。必ず &t=（サムネイル指定）を付けて要求する。
+  // 1 枚目は動画（.ts 等）のこともあり、t 無しだと配信側が「動画本体のストリーミング」と解釈して
+  // ファイル全体（数 GB）を返し、WebView2 がそれを丸ごとメモリに載せようとして
+  // OOM（0xE0000008）でプロセスごと落ちる。t 付きならシェルサムネイルの小さな PNG になる。
   function setPreviewThumb(url) {
     preview.innerHTML = '';
     const img = document.createElement('img');
     img.decoding = 'async';
-    img.src = url;
+    img.onerror = () => img.remove(); // サムネイルを作れない動画は 404 → プレビューなし
+    img.src = url + '&t=512';
     preview.appendChild(img);
   }
 

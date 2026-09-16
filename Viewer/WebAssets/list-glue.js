@@ -40,6 +40,33 @@
   // 一覧に出す価値があるもの＝フォルダー／画像／動画／圧縮ファイル。それ以外が「非対応ファイル」。
   function isSupportedEntry(e) { return !!(e.is_dir || e.is_image || e.is_video || e.is_archive); }
 
+  // 詳細ペイン向けの集計：現在の一覧のファイル数／対応ファイル数と、パス→エントリ（サイズ参照用）。
+  // 非対応ファイルを隠していても件数は隠す前の一覧で数える。
+  let folderCounts = null;        // { total, supported } / 仮想表示や空タブは null
+  let entryByPath = new Map();    // path → entry（size / is_dir）
+  function updateFolderStats(entries) {
+    entryByPath = new Map(entries.map((e) => [e.path, e]));
+    const files = entries.filter((e) => !e.is_dir);
+    folderCounts = { total: files.length, supported: files.filter(isSupportedEntry).length };
+  }
+  // 選択の通知（ホスト経由で詳細ペインへ）。フォルダーの件数と、選択中ファイルの合計サイズ／
+  // フォルダー数を添える（フォルダーのサイズは数えない）。
+  function notifySelectionToHost(paths, archivePath) {
+    let size = 0, dirs = 0;
+    for (const p of paths || []) {
+      const e = entryByPath.get(p);
+      if (!e) continue;
+      if (e.is_dir) dirs++;
+      else if (typeof e.size === 'number') size += e.size;
+    }
+    invoke('selection_changed', {
+      paths, archivePath,
+      total_files: folderCounts ? folderCounts.total : null,
+      supported_files: folderCounts ? folderCounts.supported : null,
+      sel_size: size, sel_dirs: dirs,
+    }).catch(() => {});
+  }
+
   // ---- トースト ----
   let toastEl = null, toastTimer = null;
   function showToast(msg) {
@@ -84,7 +111,7 @@
     },
     onOpenArchive: (path) => { enterArchive(path); },
     onOpenFolderNewTab: (path) => { invoke('new_tab_with_folder', { path }).catch(() => {}); },
-    onSelectionChanged: () => { invoke('selection_changed', { paths: FileList.getSelectedPaths(), archivePath: currentArchive }); },
+    onSelectionChanged: () => { notifySelectionToHost(FileList.getSelectedPaths(), currentArchive); },
     showToast,
     onRenamed: async () => { await loadLocation(); },
     onDeleted: () => deleteSelected(),
@@ -336,7 +363,8 @@
       grid.appendChild(FileList.createItem(file, {}));
     }
     FileList.clearSelection();
-    invoke('selection_changed', { paths: [], archivePath: null });
+    folderCounts = null; entryByPath = new Map(); // 仮想表示／空タブ：件数なし
+    notifySelectionToHost([], null);
   }
 
   // 戻る：履歴を1つ前へ。書庫の地点もそのままたどれる。
@@ -398,6 +426,7 @@
     }
     if (myLoad !== loadSeq) return; // 古い結果は破棄（新しいロードがスピナーを管理）
     hideSpinner();
+    updateFolderStats(entries); // 件数は隠す前に数える
     if (!showUnsupported) entries = entries.filter(isSupportedEntry); // 非対応ファイルを隠す
 
     grid.innerHTML = '';
@@ -421,7 +450,7 @@
       else if (file.is_dir && inArchive && showFolderThumbs) innerFolderItems.push({ item, file });
     }
     FileList.clearSelection();
-    invoke('selection_changed', { paths: [], archivePath: currentArchive });
+    notifySelectionToHost([], currentArchive);
 
     applyTagFilterDom(); // 再構築した DOM にタグフィルターを再適用（仕様 §7）
     notifyViewerLists(); // 開いているビューワの画像リストを最新の一覧に追従（増減を反映・仕様 §4.5）
@@ -455,6 +484,7 @@
       return; // 失敗時は現状維持（ちらつかせない）
     }
     if (myLoad !== loadSeq) return;
+    updateFolderStats(entries); // 件数は隠す前に数える
     if (!showUnsupported) entries = entries.filter(isSupportedEntry); // 非対応ファイルを隠す
 
     const prevSel = FileList.getSelectedPaths();
@@ -833,7 +863,8 @@
       headerPath.value = '';
       invoke('set_tab_title', { title: '' }).catch(() => {});
       FileList.clearSelection();
-      invoke('selection_changed', { paths: [], archivePath: null });
+      folderCounts = null; entryByPath = new Map(); // 空タブ：件数なし
+      notifySelectionToHost([], null);
     });
     // ビューワで表示中の画像を一覧で選択（設定「表示している画像をファイル一覧上で選択する」）。
     window.__TAURI__.event.listen('select_image', (e) => {

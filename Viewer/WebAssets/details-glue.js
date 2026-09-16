@@ -45,16 +45,31 @@
     return 'https://file.viewer/raw?p=' + encodeURIComponent(path);
   }
 
-  async function show(paths, archivePath) {
+  // extra: 一覧が添える集計 { total_files, supported_files, sel_size, sel_dirs }（無い場合あり）
+  async function show(paths, archivePath, extra) {
     const my = ++showSeq;
     if (!paths || paths.length === 0) {
       preview.innerHTML = '';
-      info.innerHTML = '<div class="muted">ファイルを選択してください</div>';
+      // 未選択時はフォルダーの総ファイル数と、本アプリで表示できるファイル数を出す。
+      if (extra && typeof extra.total_files === 'number') {
+        info.innerHTML = row('ファイル数', String(extra.total_files)) +
+                         row('対応ファイル数', String(extra.supported_files ?? 0));
+      } else {
+        info.innerHTML = '<div class="muted">ファイルを選択してください</div>';
+      }
       return;
     }
     if (paths.length > 1) {
       preview.innerHTML = '';
-      info.innerHTML = '<div class="muted">' + paths.length + ' 個を選択中</div>';
+      // 複数選択：件数と合計サイズ。フォルダーのサイズは数えず「サイズ不明のフォルダ N 個」と添える。
+      let sizeText = '';
+      if (extra && typeof extra.sel_size === 'number') {
+        const dirs = extra.sel_dirs || 0;
+        if (extra.sel_size > 0 || dirs === 0) sizeText = fmtSize(extra.sel_size);
+        if (dirs > 0) sizeText += (sizeText ? ' + ' : '') + 'サイズ不明のフォルダ' + dirs + '個';
+      }
+      info.innerHTML = '<div class="muted">' + paths.length + ' 個を選択中</div>' +
+                       (sizeText ? row('合計サイズ', sizeText) : '');
       return;
     }
 
@@ -73,14 +88,18 @@
     }
 
     if (isImage(path) || isVideo(path)) {
-      let md = null;
+      // メタデータと並行してディスク情報（更新日時）も取る。書庫内は更新日時を持たないので省く。
+      let md = null, fi = null;
       try {
-        md = archivePath
-          ? await invoke('get_image_details', { archivePath, innerPath: path })
-          : await invoke('get_image_details', { path });
+        [md, fi] = await Promise.all([
+          archivePath
+            ? invoke('get_image_details', { archivePath, innerPath: path })
+            : invoke('get_image_details', { path }),
+          archivePath ? Promise.resolve(null) : invoke('get_file_info', { path }).catch(() => null),
+        ]);
       } catch {}
       if (my !== showSeq) return;
-      renderImage(name, md);
+      renderImage(name, md, fi);
     } else if (archivePath) {
       // 書庫の中の項目（フォルダー / 非画像ファイル）。ディスク情報は取れないので名前のみ表示し、
       // フォルダーなら一覧と同じく内部フォルダー配下の1枚目をサムネイル表示する。
@@ -142,8 +161,13 @@
     preview.appendChild(img);
   }
 
-  function renderImage(name, md) {
+  function renderImage(name, md, fi) {
     const parts = ['<div class="name">' + esc(name) + '</div>'];
+    if (!md && fi) {
+      // メタデータを読めなかったファイルでも、サイズと更新日時は出す。
+      if (!fi.is_dir) parts.push(row('サイズ', fmtSize(fi.size)));
+      parts.push(row('更新日時', fmtDate(fi.modified_at)));
+    }
     if (md) {
       if (md.has_ai_data) {
         if (md.generator) parts.push(row('生成元', md.generator));
@@ -152,6 +176,7 @@
       parts.push(row('形式', md.format));
       if (md.width && md.height) parts.push(row('画像サイズ', md.width + ' × ' + md.height));
       parts.push(row('サイズ', fmtSize(md.file_size)));
+      if (fi && fi.modified_at) parts.push(row('更新日時', fmtDate(fi.modified_at)));
 
       if (md.has_ai_data) {
         if (md.positive) parts.push(promptBlock('プロンプト', md.positive));
@@ -663,7 +688,7 @@
   if (window.__TAURI__ && window.__TAURI__.event) {
     window.__TAURI__.event.listen('show_details', (e) => {
       const p = e && e.payload;
-      show(p && p.paths, p && p.archive_path);
+      show(p && p.paths, p && p.archive_path, p);
     });
     // フォルダーが変わったらタグ一覧を再構築（仕様 §7）。
     window.__TAURI__.event.listen('folder_changed', () => loadTagsForDirectory());

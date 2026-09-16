@@ -1577,7 +1577,18 @@ public partial class MainWindow : Window
             {
                 var paths = StrArray(args, "paths");
                 var archivePath = Str(args, "archivePath");
-                tab.DetailsBridge?.EmitEvent("show_details", new { paths, archive_path = archivePath });
+                // 一覧が添える集計（フォルダーの件数・選択の合計サイズ）はそのまま詳細ペインへ渡す。
+                static long? Num(System.Text.Json.JsonElement a, string key)
+                    => a.TryGetProperty(key, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.Number && v.TryGetInt64(out var n) ? n : null;
+                tab.DetailsBridge?.EmitEvent("show_details", new
+                {
+                    paths,
+                    archive_path = archivePath,
+                    total_files = Num(args, "total_files"),
+                    supported_files = Num(args, "supported_files"),
+                    sel_size = Num(args, "sel_size"),
+                    sel_dirs = Num(args, "sel_dirs"),
+                });
                 return (object?)null;
             });
 

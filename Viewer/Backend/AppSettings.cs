@@ -29,8 +29,10 @@ public sealed class AppSettings
     public bool ImageWindowPerTab { get; set; }              // タブごとに画像ウィンドウを開く（false=全タブ共有の1ウィンドウ）
 
     // 表示設定（メニューバーから変更・仕様 §1.1/§4.1）
+    // ファイル一覧：新しいタブの初期設定（各タブの現在値は OpenTab* に別途保持する）
     public double IconSize { get; set; } = 120;             // 一覧アイコンサイズ(px)
-    public string SortMode { get; set; } = "name_asc";      // name_asc/name_desc/date_asc/date_desc
+    public string SortMode { get; set; } = "name_asc";      // name_asc/name_desc/date_asc/date_desc/size_asc/size_desc
+    public bool ShowUnsupportedFiles { get; set; } = true;  // 本アプリで表示できないファイルも一覧に出す
     public int ViewCount { get; set; } = 1;                 // 画像ウィンドウの同時表示枚数(1-16)
     public bool ReadingRtl { get; set; } = true;           // 右→左（漫画風）
     public string TrimMode { get; set; } = "short";         // レイアウト3のトリミング方式（none/both/vertical/horizontal/short/long）
@@ -50,6 +52,12 @@ public sealed class AppSettings
     // 前回終了時のタブ群（"last" 起動時に全タブ復元）。各要素はフォルダパス（""=空タブ）。
     public List<string> OpenTabs { get; set; } = new();
     public int ActiveTabIndex { get; set; }                 // 復元時にアクティブにするタブの index
+    // タブごとの表示状態（OpenTabs と同じ順。要素が足りない分は上の初期設定で補う）。
+    // 入れ子テーブルではなく並列リストにしているのは、古い settings.toml との互換と
+    // TOML 読み込み失敗（＝設定全リセット）のリスクを避けるため。
+    public List<string> OpenTabSortModes { get; set; } = new();
+    public List<double> OpenTabIconSizes { get; set; } = new();
+    public List<bool> OpenTabShowUnsupported { get; set; } = new();
 
     // 画像ウィンドウ：新規に開いたときの表示枚数
     public string ImageCountMode { get; set; } = "last";    // "last"=前回開いていた枚数 / "fixed"=決まった枚数

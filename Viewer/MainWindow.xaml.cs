@@ -26,6 +26,14 @@ public partial class MainWindow : Window
 
     // ---- ファイル一覧ペインのタブ（1タブ=1 WebView2。中央のみタブ化・ツリー/詳細は共有） ----
     // GroupId は将来の分割ビュー（chbrowser 式 PaneLayoutPanel）を見据えた予約。今は全タブ "main"。
+    /// <summary>タブ生成時に与える表示状態（復元／Ctrl+T 複製用）。null なら設定の初期値。</summary>
+    private sealed class TabViewState
+    {
+        public string SortMode = "name_asc";
+        public double IconSize = 120;
+        public bool ShowUnsupported = true;
+    }
+
     private sealed class TabContext
     {
         public string Id = Guid.NewGuid().ToString("N");
@@ -39,6 +47,10 @@ public partial class MainWindow : Window
         public string Title = "新しいタブ";
         public string InitialFolder = "";    // 生成時に最初に開くフォルダ（空=空タブ）
         public string CurrentFolder = "";    // 現在のディスク上フォルダ（書庫内でも親を保持）
+        // タブごとの表示状態（並び替え／アイコンサイズ／非対応ファイル表示）。再起動後も復元する。
+        public string SortMode = "name_asc";
+        public double IconSize = 120;
+        public bool ShowUnsupported = true;
         // フォルダー監視（タブごと・仕様 §1.5）。
         public FileSystemWatcher? Watcher;
         public DispatcherTimer? FsDebounce; // 変更通知のデバウンス（このタブ専用・初回に生成）
@@ -152,9 +164,8 @@ public partial class MainWindow : Window
         }
         _settings.TreePaneWidth = TreeCol.ActualWidth > 0 ? TreeCol.ActualWidth : TreeCol.Width.Value;
         _settings.DetailsPaneWidth = DetailsCol.ActualWidth > 0 ? DetailsCol.ActualWidth : DetailsCol.Width.Value;
-        // 起動時復元用：開いている全タブのフォルダ（順序）とアクティブ index を保存。
-        _settings.OpenTabs = _tabs.Select(t => t.CurrentFolder ?? "").ToList();
-        _settings.ActiveTabIndex = _activeTab != null ? Math.Max(0, _tabs.IndexOf(_activeTab)) : 0;
+        // 起動時復元用：開いている全タブのフォルダ（順序）・表示状態・アクティブ index を保存。
+        SnapshotTabStates();
         var lastFolder = _activeTab?.CurrentFolder; // 互換：単一フォルダも保持
         if (!string.IsNullOrEmpty(lastFolder)) _settings.LastFolder = lastFolder;
         SettingsService.Save(_settings);
@@ -215,10 +226,13 @@ public partial class MainWindow : Window
         win.View.CoreWebView2.WindowCloseRequested += (_, _) => win.Close();
     }
 
-    private object ViewSettingsPayload() => new
+    private object ViewSettingsPayload() => ViewSettingsPayload(null);
+    // tab を渡すと並び替え／アイコンサイズ／非対応表示はそのタブの現在値になる（一覧ペイン用）。
+    private object ViewSettingsPayload(TabContext? tab) => new
     {
-        icon_size = _settings.IconSize,
-        sort_mode = _settings.SortMode,
+        icon_size = tab?.IconSize ?? _settings.IconSize,
+        sort_mode = tab?.SortMode ?? _settings.SortMode,
+        show_unsupported = tab?.ShowUnsupported ?? _settings.ShowUnsupportedFiles,
         view_count = _settings.ViewCount,
         reading_rtl = _settings.ReadingRtl,
         trim_mode = _settings.TrimMode,
@@ -245,6 +259,9 @@ public partial class MainWindow : Window
         preload_count = _settings.PreloadCount,
         folder_thumbnails = _settings.FolderThumbnails,
         archive_thumbnails = _settings.ArchiveThumbnails,
+        default_sort_mode = _settings.SortMode,
+        default_icon_size = _settings.IconSize,
+        default_show_unsupported = _settings.ShowUnsupportedFiles,
         sync_list_selection = _settings.SyncListSelection,
         sync_tree_selection = _settings.SyncTreeSelection,
         show_archives_in_tree = _settings.ShowArchivesInTree,
@@ -274,6 +291,21 @@ public partial class MainWindow : Window
     private void EmitToAllTabs(string ev, object? payload)
     {
         foreach (var t in _tabs) t.Bridge?.EmitEvent(ev, payload);
+    }
+    // 表示設定の変更を全タブへ通知。並び替え／アイコンサイズ／非対応表示はタブごとの値を載せる
+    // （共通ペイロードを配ると各タブの状態が初期値で上書きされてしまう）。
+    private void EmitViewSettingsToAllTabs()
+    {
+        foreach (var t in _tabs) t.Bridge?.EmitEvent("view_settings_changed", ViewSettingsPayload(t));
+    }
+    // 開いている全タブのフォルダ・表示状態・アクティブ index を設定へ写す（保存は呼び出し側）。
+    private void SnapshotTabStates()
+    {
+        _settings.OpenTabs = _tabs.Select(t => t.CurrentFolder ?? "").ToList();
+        _settings.OpenTabSortModes = _tabs.Select(t => t.SortMode).ToList();
+        _settings.OpenTabIconSizes = _tabs.Select(t => t.IconSize).ToList();
+        _settings.OpenTabShowUnsupported = _tabs.Select(t => t.ShowUnsupported).ToList();
+        _settings.ActiveTabIndex = _activeTab != null ? Math.Max(0, _tabs.IndexOf(_activeTab)) : 0;
     }
     private void EmitToAllImages(string ev, object? payload)
     {
@@ -334,17 +366,34 @@ public partial class MainWindow : Window
                     EmitToAllImages("view_settings_changed", ViewSettingsPayload());
                 }
                 break;
+            case "default_sort_mode":
+                {
+                    var m = Str(args, "value");
+                    if (!string.IsNullOrEmpty(m)) { _settings.SortMode = m; SettingsService.Save(_settings); }
+                }
+                break;
+            case "default_icon_size":
+                if (args.TryGetProperty("value", out var dis) && dis.TryGetDouble(out var disv))
+                {
+                    _settings.IconSize = Math.Clamp(disv, 40, 400);
+                    SettingsService.Save(_settings);
+                }
+                break;
+            case "default_show_unsupported":
+                _settings.ShowUnsupportedFiles = Bool(args, "value");
+                SettingsService.Save(_settings);
+                break;
             case "folder_thumbnails":
                 _settings.FolderThumbnails = Bool(args, "value");
                 SettingsService.Save(_settings);
-                EmitToAllTabs("view_settings_changed", ViewSettingsPayload()); // フラグ更新
+                EmitViewSettingsToAllTabs(); // フラグ更新
                 EmitToAllDetails("view_settings_changed", ViewSettingsPayload()); // 詳細ペインのサムネ表示にも反映
                 EmitToAllTabs("reload_list_full", null);                       // 全再読込で反映
                 break;
             case "archive_thumbnails":
                 _settings.ArchiveThumbnails = Bool(args, "value");
                 SettingsService.Save(_settings);
-                EmitToAllTabs("view_settings_changed", ViewSettingsPayload());
+                EmitViewSettingsToAllTabs();
                 EmitToAllDetails("view_settings_changed", ViewSettingsPayload());
                 EmitToAllTabs("reload_list_full", null);
                 break;
@@ -474,10 +523,19 @@ public partial class MainWindow : Window
         {
             // 2つ目以降をアクティブにしながら作るとタブが順々に切り替わってフラッシュするため、
             // 全タブを非アクティブ（Hidden）で初期化だけ行い、最後に対象タブだけをアクティブ化する。
-            foreach (var f in _settings.OpenTabs)
+            for (var i = 0; i < _settings.OpenTabs.Count; i++)
             {
+                var f = _settings.OpenTabs[i];
                 var folder = (!string.IsNullOrEmpty(f) && (Directory.Exists(f) || Backend.NetworkShares.IsServerRoot(f))) ? f : "";
-                await CreateTabAsync(folder, activate: false);
+                // タブごとの表示状態（保存されていない分は初期設定で補う）。
+                var st = new TabViewState
+                {
+                    SortMode = i < _settings.OpenTabSortModes.Count && !string.IsNullOrEmpty(_settings.OpenTabSortModes[i])
+                        ? _settings.OpenTabSortModes[i] : _settings.SortMode,
+                    IconSize = i < _settings.OpenTabIconSizes.Count ? _settings.OpenTabIconSizes[i] : _settings.IconSize,
+                    ShowUnsupported = i < _settings.OpenTabShowUnsupported.Count ? _settings.OpenTabShowUnsupported[i] : _settings.ShowUnsupportedFiles,
+                };
+                await CreateTabAsync(folder, activate: false, st);
             }
             var idx = Math.Clamp(_settings.ActiveTabIndex, 0, _tabs.Count - 1);
             ActivateTab(_tabs[idx]); // 対象だけ表示。他は Collapsed＋サスペンドへ。
@@ -587,7 +645,7 @@ public partial class MainWindow : Window
     }
 
     // ---- タブ管理（中央のファイル一覧。1タブ=1 WebView2・付け替えず Visibility で切替） ----
-    private async Task<TabContext> CreateTabAsync(string initialFolder, bool activate)
+    private async Task<TabContext> CreateTabAsync(string initialFolder, bool activate, TabViewState? state = null)
     {
         // activate=false（起動時の復元など）はアクティブにせず初期化だけ行う。Collapsed だと
         // WebView2 が初期化されない（HWND 未生成）ため Hidden で初期化する（描画されない＝
@@ -599,6 +657,10 @@ public partial class MainWindow : Window
         DetailsHost.Children.Add(detailsView);
         var tab = new TabContext { View = view, DetailsView = detailsView, InitialFolder = initialFolder ?? "" };
         if (!string.IsNullOrEmpty(initialFolder)) tab.CurrentFolder = initialFolder;
+        // 表示状態：復元／複製なら与えられた値、新規なら設定の初期値。
+        tab.SortMode = !string.IsNullOrEmpty(state?.SortMode) ? state!.SortMode : _settings.SortMode;
+        tab.IconSize = Math.Clamp(state?.IconSize ?? _settings.IconSize, 40, 400);
+        tab.ShowUnsupported = state?.ShowUnsupported ?? _settings.ShowUnsupportedFiles;
         // 生成時点でチップ名を初期パスから決めておく（一覧の set_tab_title が後で上書きする）。
         // これが無いと、復元直後にアクティブ化→追加タブで即サスペンドされたタブの見出しが
         // 「新しいタブ」のまま残ることがある。
@@ -623,7 +685,9 @@ public partial class MainWindow : Window
     private async Task NewTabFromActiveAsync()
     {
         var folder = _activeTab?.CurrentFolder ?? "";
-        await CreateTabAsync(folder, activate: true); // Ctrl+T: 現タブと同じフォルダ
+        var src = _activeTab;
+        var st = src == null ? null : new TabViewState { SortMode = src.SortMode, IconSize = src.IconSize, ShowUnsupported = src.ShowUnsupported };
+        await CreateTabAsync(folder, activate: true, st); // Ctrl+T: 現タブと同じフォルダ・同じ表示状態
     }
 
     private async void NewTabButton_Click(object sender, RoutedEventArgs e)
@@ -1225,6 +1289,25 @@ public partial class MainWindow : Window
     }
 
     /// <summary>クエリ文字列（"?p=...&..."）から指定キーの値を取り出す（System.Web 非依存）。</summary>
+    // 書庫内エントリの並び替え（フォルダー先頭は維持）。更新日時は持たないので名前順にフォールバック。
+    private static List<ArchiveEntry> SortArchiveEntries(List<ArchiveEntry> list, string? mode)
+    {
+        int NameCmp(ArchiveEntry a, ArchiveEntry b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+        Comparison<ArchiveEntry> cmp = mode switch
+        {
+            "name_desc" => (a, b) => -NameCmp(a, b),
+            "size_asc" => (a, b) => a.Size.CompareTo(b.Size) is var c && c != 0 ? c : NameCmp(a, b),
+            "size_desc" => (a, b) => b.Size.CompareTo(a.Size) is var c && c != 0 ? c : NameCmp(a, b),
+            _ => NameCmp,
+        };
+        var dirs = list.Where(e => e.IsDir).ToList();
+        var files = list.Where(e => !e.IsDir).ToList();
+        dirs.Sort(cmp);
+        files.Sort(cmp);
+        dirs.AddRange(files);
+        return dirs;
+    }
+
     /// <summary>動画配信の 1 応答あたりの最大バイト数。WebView2 が応答ストリームを全部
     /// メモリに載せるため、ファイルの大きさに関わらずここで必ず刻む。</summary>
     private const long MaxResponseChunk = 8 * 1024 * 1024;
@@ -1281,10 +1364,37 @@ public partial class MainWindow : Window
             return await Task.Run<object?>(() => ListingService.GetFiles(path, sort));
         });
         // 表示設定（メニューバーの現在値）。一覧/ビューワーが起動時に取得する。
-        bridge.Register("get_view_settings", _ => ViewSettingsPayload());
+        bridge.Register("get_view_settings", _ => ViewSettingsPayload(tab));
         // 表示設定の更新（メニュー廃止に伴い、各ペインのコントロールから直接設定・保存する）。
-        bridge.Register("set_sort", args => { _settings.SortMode = Str(args, "mode"); SettingsService.Save(_settings); return (object?)null; });
-        bridge.Register("set_icon_size", args => { if (args.TryGetProperty("size", out var v) && v.TryGetDouble(out var d)) { _settings.IconSize = Math.Clamp(d, 40, 400); SettingsService.Save(_settings); } return (object?)null; });
+        // 並び替え／アイコンサイズ／非対応表示はタブごとの状態（tab があるとき）。変更のたびに
+        // 全タブの状態を設定へ写して保存し、再起動後も復元できるようにする。tab が無い呼び出し
+        // （画像ウィンドウ等）は従来どおり初期設定を更新する。
+        bridge.Register("set_sort", args =>
+        {
+            var mode = Str(args, "mode");
+            if (string.IsNullOrEmpty(mode)) return (object?)null;
+            if (tab != null) { tab.SortMode = mode; SnapshotTabStates(); } else _settings.SortMode = mode;
+            SettingsService.Save(_settings);
+            return (object?)null;
+        });
+        bridge.Register("set_icon_size", args =>
+        {
+            if (args.TryGetProperty("size", out var v) && v.TryGetDouble(out var d))
+            {
+                var px = Math.Clamp(d, 40, 400);
+                if (tab != null) { tab.IconSize = px; SnapshotTabStates(); } else _settings.IconSize = px;
+                SettingsService.Save(_settings);
+            }
+            return (object?)null;
+        });
+        bridge.Register("set_show_unsupported", args =>
+        {
+            if (tab == null) return (object?)null;
+            tab.ShowUnsupported = Bool(args, "value");
+            SnapshotTabStates();
+            SettingsService.Save(_settings);
+            return (object?)null;
+        });
         bridge.Register("set_view_count", args => { if (args.TryGetProperty("count", out var v) && v.TryGetInt32(out var n)) { _settings.ViewCount = Math.Clamp(n, 1, 16); SettingsService.Save(_settings); } return (object?)null; });
         bridge.Register("set_layout", args => { var m = Str(args, "mode"); if (!string.IsNullOrEmpty(m)) { _settings.LayoutMode = m; SettingsService.Save(_settings); } return (object?)null; });
         bridge.Register("set_reading_rtl", args => { _settings.ReadingRtl = Bool(args, "rtl"); SettingsService.Save(_settings); return (object?)null; });
@@ -1328,7 +1438,7 @@ public partial class MainWindow : Window
 
         // 書庫の閲覧（仕様 §5）。
         bridge.Register("get_archive_files", args =>
-            (object?)ArchiveService.ListEntries(Str(args, "archivePath"), Str(args, "innerPath")));
+            (object?)SortArchiveEntries(ArchiveService.ListEntries(Str(args, "archivePath"), Str(args, "innerPath")), Str(args, "sort")));
         // 書庫サムネイル用：中の1枚目の画像の内部パスを返す（書庫を開くので背景で実行）。
         // innerPath を渡すと、その内部フォルダー配下に限定（書庫内フォルダーのサムネイル用）。
         bridge.Register("get_archive_first_image", async args =>

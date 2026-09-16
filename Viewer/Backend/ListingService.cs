@@ -111,6 +111,7 @@ public static class ListingService
                     IsArchive = FileTypes.IsArchive(e.Name),
                     IsVideo = FileTypes.IsVideo(e.Name),
                     ModifiedAt = mtime,
+                    Size = (e as FileInfo)?.Length,
                 });
             }
         }
@@ -122,6 +123,8 @@ public static class ListingService
             "name_desc" => (a, b) => -NameCmp(a, b),
             "date_asc" => (a, b) => Comparer<long>.Default.Compare(a.ModifiedAt ?? 0, b.ModifiedAt ?? 0) is var c && c != 0 ? c : NameCmp(a, b),
             "date_desc" => (a, b) => Comparer<long>.Default.Compare(b.ModifiedAt ?? 0, a.ModifiedAt ?? 0) is var c && c != 0 ? c : NameCmp(a, b),
+            "size_asc" => (a, b) => Comparer<long>.Default.Compare(a.Size ?? 0, b.Size ?? 0) is var c && c != 0 ? c : NameCmp(a, b),
+            "size_desc" => (a, b) => Comparer<long>.Default.Compare(b.Size ?? 0, a.Size ?? 0) is var c && c != 0 ? c : NameCmp(a, b),
             _ => NameCmp, // name_asc
         };
         folders.Sort(cmp);

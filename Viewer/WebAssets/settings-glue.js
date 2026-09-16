@@ -17,6 +17,9 @@
   const endMarker = document.getElementById('end_marker');
   const folderThumbs = document.getElementById('folder_thumbnails');
   const archiveThumbs = document.getElementById('archive_thumbnails');
+  const defaultSortMode = document.getElementById('default_sort_mode');
+  const defaultIconSize = document.getElementById('default_icon_size');
+  const defaultShowUnsupported = document.getElementById('default_show_unsupported');
   const syncListSel = document.getElementById('sync_list_selection');
   const syncTreeSel = document.getElementById('sync_tree_selection');
   const showArchivesInTree = document.getElementById('show_archives_in_tree');
@@ -56,6 +59,9 @@
     endMarker.checked = !!s.end_marker;
     folderThumbs.checked = !!s.folder_thumbnails;
     archiveThumbs.checked = !!s.archive_thumbnails;
+    defaultSortMode.value = s.default_sort_mode || 'name_asc';
+    defaultIconSize.value = (typeof s.default_icon_size === 'number') ? s.default_icon_size : 120;
+    defaultShowUnsupported.checked = s.default_show_unsupported !== false;
     syncListSel.checked = !!s.sync_list_selection;
     syncTreeSel.checked = !!s.sync_tree_selection;
     showArchivesInTree.checked = !!s.show_archives_in_tree;
@@ -88,6 +94,18 @@
   bindCheckbox(endMarker, 'end_marker');
   bindCheckbox(folderThumbs, 'folder_thumbnails');
   bindCheckbox(archiveThumbs, 'archive_thumbnails');
+  bindCheckbox(defaultShowUnsupported, 'default_show_unsupported');
+  // 新しいタブの初期設定（並び替え／アイコンサイズ）。既存タブには影響しない。
+  defaultSortMode.addEventListener('change', () => {
+    invoke('set_setting', { key: 'default_sort_mode', value: defaultSortMode.value }).catch(() => {});
+  });
+  defaultIconSize.addEventListener('change', () => {
+    let v = parseInt(defaultIconSize.value, 10);
+    if (!(v >= 40)) v = 40;
+    if (v > 400) v = 400;
+    defaultIconSize.value = v;
+    invoke('set_setting', { key: 'default_icon_size', value: v }).catch(() => {});
+  });
   bindCheckbox(syncListSel, 'sync_list_selection');
   bindCheckbox(syncTreeSel, 'sync_tree_selection');
   bindCheckbox(showArchivesInTree, 'show_archives_in_tree');

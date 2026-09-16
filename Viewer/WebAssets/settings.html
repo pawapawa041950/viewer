@@ -68,6 +68,29 @@
         </label>
         <p class="hint">圧縮ファイル内の1枚目の画像をサムネイル表示します。動作が重い場合はチェックを外してください。</p>
 
+        <div class="field">
+          <div class="field-label">新しいタブの初期設定</div>
+          <div class="row">
+            <span class="unit">並び替え</span>
+            <select id="default_sort_mode" class="sel-input">
+              <option value="name_asc">名前 昇順</option>
+              <option value="name_desc">名前 降順</option>
+              <option value="date_asc">更新日時 昇順</option>
+              <option value="date_desc">更新日時 降順</option>
+              <option value="size_asc">サイズ 昇順</option>
+              <option value="size_desc">サイズ 降順</option>
+            </select>
+            <span class="unit">アイコンサイズ</span>
+            <input type="number" id="default_icon_size" class="num-input" min="40" max="400" step="4" />
+            <span class="unit">px</span>
+          </div>
+          <label class="row">
+            <input type="checkbox" id="default_show_unsupported" />
+            <span>非対応ファイルを表示する</span>
+          </label>
+        </div>
+        <p class="hint">並び替え・アイコンサイズ・非対応ファイル表示はタブごとに記憶され、再起動後も維持されます。ここで設定するのは新しく開くタブの初期値です。</p>
+
         <label class="row">
           <input type="checkbox" id="sync_list_selection" />
           <span>表示している画像をファイル一覧上で選択する</span>

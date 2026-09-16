@@ -36,6 +36,9 @@
   let tagFilter = null;        // タグフィルター：null=無効 / Set<path>=一致パス（仕様 §7）
   let showFolderThumbs = true;  // フォルダのサムネイル表示（設定・重い場合 OFF）
   let showArchiveThumbs = true; // 圧縮ファイルのサムネイル表示（設定・重い場合 OFF）
+  let showUnsupported = true;   // 本アプリで表示できないファイルも一覧に出す（タブごとの状態）
+  // 一覧に出す価値があるもの＝フォルダー／画像／動画／圧縮ファイル。それ以外が「非対応ファイル」。
+  function isSupportedEntry(e) { return !!(e.is_dir || e.is_image || e.is_video || e.is_archive); }
 
   // ---- トースト ----
   let toastEl = null, toastTimer = null;
@@ -135,25 +138,34 @@
     if (typeof vs.folder_thumbnails === 'boolean') showFolderThumbs = vs.folder_thumbnails;
     if (typeof vs.archive_thumbnails === 'boolean') showArchiveThumbs = vs.archive_thumbnails;
     if (vs.icon_size) setIconSize(vs.icon_size, false);
+    let needReload = false;
     if (vs.sort_mode) {
-      const changed = vs.sort_mode !== currentSort;
+      if (vs.sort_mode !== currentSort) needReload = true;
       currentSort = vs.sort_mode;
       markSortActive();
-      if (changed && reloadOnSortChange && (currentFolder || currentArchive)) loadLocation();
     }
+    if (typeof vs.show_unsupported === 'boolean') {
+      if (vs.show_unsupported !== showUnsupported) needReload = true;
+      showUnsupported = vs.show_unsupported;
+      markUnsupportedActive();
+    }
+    if (needReload && reloadOnSortChange && (currentFolder || currentArchive)) loadLocation();
   }
-  // 起動時に現在値を取得して適用。
-  invoke('get_view_settings').then((vs) => applyViewSettings(vs, false)).catch(() => {});
-  // このタブが最初に開くパス（host がタブ生成時に決定）。空なら空タブのまま。
-  // フォルダー／圧縮ファイルのどちらでも開けるよう resolve_path で判定して分岐する。
-  invoke('get_initial_folder').then((p) => {
-    if (!p) return;
-    invoke('resolve_path', { path: p }).then((r) => {
-      if (!r || r.kind === 'none') { loadFolder(p); return; } // 後方互換: 判定不可ならフォルダー扱い
-      if (r.kind === 'archive') enterArchive(r.path);
-      else loadFolder(r.path);
-    }).catch(() => loadFolder(p));
-  }).catch(() => {});
+  // 起動時に現在値（タブごとの並び替え／アイコンサイズ／非対応表示を含む）を取得して適用し、
+  // その後で最初のパスを開く。順序を固定しないと、初期値のまま一覧が描画されてから
+  // 設定が届く競合が起き、復元したタブの表示が保存時と食い違う。
+  invoke('get_view_settings').then((vs) => applyViewSettings(vs, false)).catch(() => {}).then(() => {
+    // このタブが最初に開くパス（host がタブ生成時に決定）。空なら空タブのまま。
+    // フォルダー／圧縮ファイルのどちらでも開けるよう resolve_path で判定して分岐する。
+    invoke('get_initial_folder').then((p) => {
+      if (!p) return;
+      invoke('resolve_path', { path: p }).then((r) => {
+        if (!r || r.kind === 'none') { loadFolder(p); return; } // 後方互換: 判定不可ならフォルダー扱い
+        if (r.kind === 'archive') enterArchive(r.path);
+        else loadFolder(r.path);
+      }).catch(() => loadFolder(p));
+    }).catch(() => {});
+  });
 
   // ---- アドレスバーのツール（ソート選択 / アイコンサイズ調整） ----
   const sortBtn = document.getElementById('sortBtn');
@@ -162,7 +174,22 @@
   const iconSizePopup = document.getElementById('iconSizePopup');
   const iconSizeRange = document.getElementById('iconSizeRange');
   const iconSizeNum = document.getElementById('iconSizeNum');
+  const unsupportedBtn = document.getElementById('unsupportedBtn');
   let iconSizeSaveTimer = null;
+
+  // 非対応ファイル表示（ON/OFF トグル）。状態はタブごとにホストが保持・保存する。
+  function markUnsupportedActive() {
+    if (unsupportedBtn) unsupportedBtn.classList.toggle('active', showUnsupported);
+  }
+  if (unsupportedBtn) {
+    unsupportedBtn.addEventListener('click', () => {
+      showUnsupported = !showUnsupported;
+      markUnsupportedActive();
+      invoke('set_show_unsupported', { value: showUnsupported }).catch(() => {});
+      if (currentFolder || currentArchive) loadLocation();
+    });
+    markUnsupportedActive();
+  }
 
   function markSortActive() {
     sortPopup.querySelectorAll('.popup-item').forEach((el) => {
@@ -362,7 +389,7 @@
     let entries;
     try {
       entries = inArchive
-        ? await invoke('get_archive_files', { archivePath: currentArchive, innerPath: currentInner })
+        ? await invoke('get_archive_files', { archivePath: currentArchive, innerPath: currentInner, sort: currentSort })
         : await invoke('get_files', { path: currentFolder, sort: currentSort });
     } catch (e) {
       if (myLoad === loadSeq) hideSpinner();
@@ -371,6 +398,7 @@
     }
     if (myLoad !== loadSeq) return; // 古い結果は破棄（新しいロードがスピナーを管理）
     hideSpinner();
+    if (!showUnsupported) entries = entries.filter(isSupportedEntry); // 非対応ファイルを隠す
 
     grid.innerHTML = '';
     const imageItems = [];
@@ -427,6 +455,7 @@
       return; // 失敗時は現状維持（ちらつかせない）
     }
     if (myLoad !== loadSeq) return;
+    if (!showUnsupported) entries = entries.filter(isSupportedEntry); // 非対応ファイルを隠す
 
     const prevSel = FileList.getSelectedPaths();
 

@@ -27,6 +27,8 @@ public sealed class FileEntry
     public bool IsVideo { get; set; }
     /// <summary>更新日時（エポックからのミリ秒）。フォルダーは null。</summary>
     public long? ModifiedAt { get; set; }
+    /// <summary>ファイルサイズ（バイト）。フォルダーは null。並び替え「サイズ」用。</summary>
+    public long? Size { get; set; }
 }
 
 /// <summary>get_folder_tree / ツリー用のフォルダー情報。</summary>

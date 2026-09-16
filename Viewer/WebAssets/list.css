@@ -59,6 +59,8 @@ html, body {
   white-space: nowrap;
 }
 .tool-btn:hover { background: var(--hover); }
+/* トグル系（非対応ファイル表示）の ON 状態 */
+.tool-btn.active { background: var(--selected); }
 
 /* ヘッダーのツールポップアップ（ソート選択 / アイコンサイズ調整） */
 .popup {

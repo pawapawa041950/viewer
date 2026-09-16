@@ -67,7 +67,8 @@
       // 動画は t= を付けてシェルサムネイルを要求する（t 無しは動画本体のストリーミング配信に
       // なるため <img> では表示できない）。作れない動画は 404 → プレビューなしにする。
       img.onerror = () => img.remove();
-      img.src = srcUrl(path, archivePath) + (isVideo(path) ? '&t=512' : '');
+      // v=現在時刻：同名で内容が変わったファイルを選び直したとき、古い画像を使い回さない
+      img.src = srcUrl(path, archivePath) + (isVideo(path) ? '&t=512' : '') + '&v=' + Date.now();
       preview.appendChild(img);
     }
 
@@ -137,7 +138,7 @@
     const img = document.createElement('img');
     img.decoding = 'async';
     img.onerror = () => img.remove(); // サムネイルを作れない動画は 404 → プレビューなし
-    img.src = url + '&t=512';
+    img.src = url + '&t=512&v=' + Date.now();
     preview.appendChild(img);
   }
 

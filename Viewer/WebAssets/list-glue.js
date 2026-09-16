@@ -63,7 +63,8 @@
       ? 'https://file.viewer/raw?a=' + encodeURIComponent(file.archivePath) +
         '&i=' + encodeURIComponent(file.innerPath || file.path)
       : 'https://file.viewer/raw?p=' + encodeURIComponent(file.path);
-    return base + '&t=' + thumbPx();
+    // v=更新日時：同名で内容が変わったファイルを Chromium が同じ URL として使い回さないようにする
+    return base + '&t=' + thumbPx() + '&v=' + (file.modified_at ?? '');
   }
 
   // ---- file-list.js 初期化（選択・キーボード・DnD を委譲） ----
@@ -442,8 +443,16 @@
 
     // 追加＋並べ替え：新リスト順に append（既存ノードは移動＝再読込なし、無ければ生成）。
     const imageItems = [], videoItems = [], archiveItems = [], folderItems = [];
+    let replaced = false;
     for (const file of entries) {
       let item = existing.get(file.path);
+      // 同じパスでも更新日時が変わっていれば別物（削除→同名で再生成、または上書き保存）。
+      // 既存ノードを使い回すと古いサムネイルが残るので、捨てて作り直す。
+      if (item && file.modified_at != null && item.dataset.mtime !== String(file.modified_at)) {
+        item.remove();
+        item = null;
+        replaced = true;
+      }
       if (!item) {
         item = FileList.createItem(file, {});
         if (file.is_image) imageItems.push({ item, file });
@@ -469,7 +478,8 @@
 
     // 選択の復元：削除された項目だけ選択から外す（残りは DOM/選択集合とも維持済み）。
     const survivors = prevSel.filter((p) => newByPath.has(p));
-    if (survivors.length !== prevSel.length) FileList.setSelection(survivors);
+    // 作り直したノードには選択クラスが付いていないので、その場合も選択を再適用する。
+    if (survivors.length !== prevSel.length || replaced) FileList.setSelection(survivors);
 
     applyTagFilterDom();
     notifyViewerLists();
@@ -506,7 +516,7 @@
             const box = img.closest('.thumb-host');
             if (box) box.classList.add('has-thumb'); // アイコンを左上へずらし、サムネイル表示
           }, { once: true });
-          img.src = urlFn(file, res) + '&t=' + thumbPx(); // 縮小デコードで配信させる
+          img.src = urlFn(file, res) + '&t=' + thumbPx() + '&v=' + (file.modified_at ?? ''); // 縮小デコード配信＋更新日時でキャッシュ回避
         }).catch(() => {});
       }
     }, { root: grid, rootMargin: '200px' });

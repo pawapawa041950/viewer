@@ -61,6 +61,8 @@ html, body {
 .tool-btn:hover { background: var(--hover); }
 /* トグル系（非対応ファイル表示）の ON 状態 */
 .tool-btn.active { background: var(--selected); }
+/* SVG アイコン（アイコンサイズの ⤡）。文字の ⇅ と同じ高さ・線の太さに見えるようにする */
+.tool-btn svg.icon { width: 13px; height: 13px; display: inline-block; vertical-align: -2px; }
 
 /* ヘッダーのツールポップアップ（ソート選択 / アイコンサイズ調整） */
 .popup {

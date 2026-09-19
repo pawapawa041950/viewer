@@ -4,8 +4,9 @@ Windows 用の画像生成AIにて作成された画像/動画ビューワー。
 
 本アプリ全編をClaude Code(コーディングAI)により作成しています。
 
-<!-- スクリーンショット (任意): docs/screenshots/ にファイルを置いて差し替え -->
-<!-- ![スクリーンショット](docs/screenshots/main.png) -->
+<div align="center">
+<a href="img/sample1.png"><img src="img/sample1.png" width="500"></a>
+</div>
 
 ## 主な機能
 
@@ -13,7 +14,18 @@ Windows 用の画像生成AIにて作成された画像/動画ビューワー。
 - **生成 AI 動画のメタデータ表示** : ComfyUI で作成された動画（MP4 / WebM / MKV）のプロンプト / モデル / LoRA / Text encoder / VAE 等
 - **動画再生** : 専用プレーヤーで再生（繰り返し再生 / A-B リピート / 詳細ペイン）
 - **タグフィルター** : タグで一覧を絞り込み
-- **複数枚表示** : 1枚はもちろん、2枚だけでなく16枚まで同時表示可能
+  <div align="center">
+  ("sitting"でフィルタリングした例)
+  <a href="img/sample4.png"><img src="img/sample4.png" width="400"></a>
+  </div>
+- **複数枚表示** : 1枚はもちろん、2枚だけでなく16枚まで同時表示可能  
+  <div align="center">
+  <a href="img/sample2.png"><img src="img/sample2.png" width="400"></a>
+  </div>   
+  <div align="center">
+  表示時のトリミングON/OFFも指定可能
+  <a href="img/sample3.png"><img src="img/sample3.png" width="400"></a>
+  </div>
 
 ### 対応形式
 

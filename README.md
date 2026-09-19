@@ -15,7 +15,7 @@ Windows 用の画像生成AIにて作成された画像/動画ビューワー。
 - **動画再生** : 専用プレーヤーで再生（繰り返し再生 / A-B リピート / 詳細ペイン）
 - **タグフィルター** : タグで一覧を絞り込み
   <div align="center">
-  ("sitting"でフィルタリングした例)
+  ("sitting"でフィルタリングした例)<br>
   <a href="img/sample4.png"><img src="img/sample4.png" width="400"></a>
   </div>
 - **複数枚表示** : 1枚はもちろん、2枚だけでなく16枚まで同時表示可能  
@@ -23,7 +23,7 @@ Windows 用の画像生成AIにて作成された画像/動画ビューワー。
   <a href="img/sample2.png"><img src="img/sample2.png" width="400"></a>
   </div>   
   <div align="center">
-  表示時のトリミングON/OFFも指定可能
+  表示時のトリミングON/OFFも指定可能<br>
   <a href="img/sample3.png"><img src="img/sample3.png" width="400"></a>
   </div>
 
